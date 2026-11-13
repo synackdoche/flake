@@ -1,0 +1,64 @@
+# Checks
+
+SYNACKDOCHE base flake — shared formatter, pre-commit, docgate checks and flake scaffolding — checks
+
+## assertions
+
+```sh
+nix build .#checks.x86_64-linux.assertions
+```
+
+*Type:* derivation
+
+Checks that an assertion keeps its condition and states the violation, the expectation and the fix.
+
+## descriptions
+
+```sh
+nix build .#checks.x86_64-linux.descriptions
+```
+
+*Type:* derivation
+
+Checks that option descriptions are present, long enough to state a contract, unique, and free of other components of this flake.
+
+## docs-introspection
+
+```sh
+nix build .#checks.x86_64-linux.docs-introspection
+```
+
+*Type:* derivation
+
+Checks that the generated documentation is complete and usable, and that incomplete documentation is reported.
+
+## messages
+
+```sh
+nix build .#checks.x86_64-linux.messages
+```
+
+*Type:* derivation
+
+Checks that an assertion message names a declared option and states both the expectation and the fix.
+
+## pre-commit
+
+```sh
+nix build .#checks.x86_64-linux.pre-commit
+```
+
+*Type:* derivation
+
+Runs treefmt through this flake's formatter, plus deadnix, statix and pedantix.
+
+## readme
+
+```sh
+nix build .#checks.x86_64-linux.readme
+```
+
+*Type:* derivation
+
+Fails when a committed README differs from the generated documentation, or when README.md and checks/README.md disagree about a check.
+

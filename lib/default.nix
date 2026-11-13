@@ -1,0 +1,1208 @@
+{ inputs, ... }:
+let
+  argumentTypeOf =
+    name: argument:
+    let
+      found = lib.findFirst (entry: entry.argument == argument) null (docArguments name);
+    in
+    if found == null then "" else found.argumentType;
+  commentBefore =
+    name:
+    let
+      index = declaredAt name;
+      preceding = lib.reverseList (lib.take (if index == null then 0 else index) sourceLines);
+    in
+    lib.reverseList (takeWhile (line: lib.hasPrefix "#" (trimLeft line)) preceding);
+  contributed =
+    modules: moduleName:
+    let
+      added = lib.subtractLists (builtins.attrNames baseline) (builtins.attrNames evaluated.options);
+      baseline = (lib.evalModules { modules = [ harness ]; }).options;
+      described = builtins.tryEval evaluated.config.meta.description;
+      evaluated = lib.evalModules {
+        modules = [
+          harness
+          modules.${moduleName}
+        ];
+      };
+    in
+    {
+      description = if described.success then described.value else "";
+      names = added;
+      options = lib.genAttrs added (optionName: evaluated.options.${optionName});
+    };
+  declaredAt =
+    name:
+    let
+      found = lib.findFirst (
+        entry: builtins.match "[[:space:]]+${name} =.*" entry.line != null
+      ) null indexedLines;
+    in
+    if found == null then null else found.i;
+  docArguments =
+    name:
+    let
+      fromArguments = dropWhile (line: line != "# Arguments") (docLines name);
+    in
+    lib.concatMap (
+      bullet:
+      let
+        parsed = builtins.match "- `([^\`]+)`: (.+)" bullet;
+      in
+      if parsed == null then
+        [ ]
+      else
+        [
+          {
+            argument = builtins.elemAt parsed 0;
+            argumentType = builtins.elemAt parsed 1;
+          }
+        ]
+    ) (lib.filter (line: lib.hasPrefix "- `" line) fromArguments);
+  docLines =
+    name:
+    map (
+      line:
+      let
+        trimmed = trimLeft line;
+      in
+      if trimmed == "#" then
+        ""
+      else if lib.hasPrefix "# " trimmed then
+        lib.removePrefix "# " trimmed
+      else
+        ""
+    ) (commentBefore name);
+  docSummary =
+    name:
+    lib.concatStringsSep " " (
+      takeWhile (line: line != "" && line != "# Arguments") (
+        lib.filter (line: line != "") (takeWhile (line: line != "# Arguments") (docLines name))
+      )
+    );
+  dropWhile = predicate: list: lib.drop (firstFalse predicate list) list;
+  everything = rec {
+    # Reports descriptions that are missing, too short to state a contract, repeated, or that name another component of the flake.
+    #
+    # # Arguments
+    # - `options`: evaluated option set whose descriptions are inspected
+    # - `components`: names of the components this flake is built from, whose mention is reported
+    # - `allowComponents`: component names that may be mentioned without being reported
+    descriptionsProblems =
+      {
+        components,
+        options,
+        allowComponents ? [ ],
+      }:
+      let
+        description = entry: entry.value.description or "";
+        flat = lib.filter (
+          entry: !(lib.hasPrefix "_" (lib.head entry.path)) && !(entry.value.internal or false)
+        ) (flattenOptions [ ] options);
+        foreignComponents = lib.filter (entry: unmentioned entry != [ ]) flat;
+        mentionedIn =
+          text:
+          lib.unique (
+            lib.concatMap (
+              token: lib.filter (component: token == component || lib.hasPrefix "${component}-" token) components
+            ) (words (lib.toLower text))
+          );
+        missing = lib.filter (entry: description entry == "") flat;
+        shared = lib.filter (
+          entry:
+          description entry != ""
+          && lib.any (other: other.path != entry.path && description other == description entry) flat
+        ) flat;
+        short = lib.filter (
+          entry: description entry != "" && builtins.stringLength (description entry) < 40
+        ) flat;
+        unmentioned =
+          entry:
+          lib.filter (component: !(lib.elem component allowComponents)) (mentionedIn (description entry));
+      in
+      map (entry: "${renderPath entry.path}: has no description") missing
+      ++ map (
+        entry:
+        "${renderPath entry.path}: description is ${toString (builtins.stringLength (description entry))} characters, at least 40 are required"
+      ) short
+      ++ map (
+        entry:
+        "${renderPath entry.path}: repeats the description of ${
+          renderPath
+            (lib.head (
+              lib.filter (other: other.path != entry.path && description other == description entry) flat
+            )).path
+        }"
+      ) shared
+      ++ map (
+        entry:
+        "${renderPath entry.path}: mentions ${lib.concatStringsSep ", " (unmentioned entry)}, which is another component of this flake and has no bearing on this option's contract"
+      ) foreignComponents;
+    # Shell environment carrying the formatter's packages and its shell hook.
+    #
+    # # Arguments
+    # - `pkgs`: nixpkgs package set the shell is built with
+    # - `preCommit`: pre-commit check whose packages and hook the shell exposes
+    devShell =
+      { pkgs, preCommit }:
+      pkgs.mkShell {
+        inherit (preCommit) shellHook;
+        buildInputs = preCommit.enabledPackages;
+      };
+    # Writes one generated README into the working tree, for the repository or for one named module.
+    #
+    # # Arguments
+    # - `pkgs`: nixpkgs package set the wrapper script runs with; the flake it documents is read from the working directory
+    docsApp =
+      { pkgs }:
+      (pkgs.writeShellScriptBin "docs" ''
+        set -eu
+        if [ ! -f "$PWD/docs-args.nix" ]; then
+          echo "no docs-args.nix in $PWD: the documentation arguments are not defined for this repository" >&2
+          exit 1
+        fi
+        expression=$(
+          cat <<'EXPR'
+        let
+          flake = builtins.getFlake ("path:" + builtins.getEnv "PWD");
+          inputs = flake.inputs // {
+            self = flake;
+          };
+          documented = if flake ? lib && flake.lib ? internal then flake.lib.internal else inputs.synackdoche-flake.lib.internal;
+          args = import (flake.outPath + "/docs-args.nix") {
+            inherit inputs;
+            pkgs = inputs.nixpkgs.legacyPackages.''${builtins.currentSystem};
+          };
+        in
+        documented.docsTree (args // {
+          checks = flake.checks.''${builtins.currentSystem};
+        })
+        EXPR
+        )
+        tree=$(nix build --no-link --print-out-paths --impure --expr "$expression")
+        if [ "''${1:-}" = "--check" ]; then
+          status=0
+          while read -r target; do
+            if [ ! -f "$PWD/$target" ]; then
+              echo "not written: $target (run: nix run .#docs)"
+              status=1
+            elif ! diff -q "$tree/$target" "$PWD/$target" > /dev/null; then
+              echo "out of date: $target (run: nix run .#docs)"
+              status=1
+            elif [ -d "$PWD/.git" ] && ! git -C "$PWD" ls-files --error-unmatch "$target" > /dev/null 2>&1; then
+              echo "not staged: $target (run: git add $target)"
+              status=1
+            elif [ -d "$PWD/.git" ] && ! git -C "$PWD" diff --quiet -- "$target"; then
+              echo "not staged: $target (run: git add $target)"
+              status=1
+            fi
+          done < <(cd "$tree" && find . -type f -name '*README*.md' | sed -e 's|^\./||')
+          if [ "$status" -ne 0 ]; then
+            exit 1
+          fi
+          echo "documentation is up to date and staged"
+          exit 0
+        fi
+        if [ $# -eq 0 ]; then
+          cd "$tree"
+          find . -type f -name '*README*.md' | sed -e 's|^\./||' | while read -r target; do
+            install -D -m 644 "$tree/$target" "$OLDPWD/$target"
+            echo "wrote $target"
+          done
+          exit 0
+        fi
+        case "$1" in
+          --module)
+            shift
+            module="$1"
+            ;;
+          *)
+            echo "usage: docs [--check | --module NAME]" >&2
+            exit 2
+            ;;
+        esac
+        if [ -f "$tree/modules/nixos/$module/README.md" ]; then
+          target="modules/nixos/$module/README.md"
+        elif [ -f "$tree/modules/nixos/$module.README.md" ]; then
+          target="modules/nixos/$module.README.md"
+        else
+          echo "no module '$module' is documented by this flake" >&2
+          exit 1
+        fi
+        install -D -m 644 "$tree/$target" "$PWD/$target"
+        echo "wrote $target"
+      '')
+      // {
+        meta.description = "Writes the generated documentation into the working tree, or checks that it is current and staged.";
+      };
+    #
+    # # Arguments
+    # - `pkgs`: nixpkgs package set used to render option documentation
+    # - `root`: path to the repository root, used to locate module files
+    # - `system`: system string selecting the packages, apps and checks to document
+    # - `name`: repository name, used as the document title
+    # - `description`: sentence saying what this flake is for
+    # - `apps`: attrset of apps to document, empty when the flake exports none
+    # - `formatter`: the derivation exposed as the flake formatter for this system
+    # - `checks`: attrset of checks to document, empty when the flake exports none
+    # - `configurations`: attrset of NixOS configurations to document
+    # - `library`: attrset of functions to document in the index
+    # - `internalLibrary`: attrset of functions documented only in lib/README.md
+    # - `modules`: attrset of NixOS modules to document
+    # - `packages`: attrset of packages to document
+    docsTree =
+      {
+        pkgs,
+        description,
+        name,
+        root,
+        system,
+        apps ? { },
+        checks ? { },
+        configurations ? { },
+        formatter ? null,
+        internalLibrary ? { },
+        library ? { },
+        modules ? { },
+        packages ? { },
+      }:
+      let
+        documentation' = documentation {
+          inherit
+            pkgs
+            root
+            system
+            name
+            description
+            apps
+            checks
+            configurations
+            formatter
+            internalLibrary
+            library
+            modules
+            packages
+            ;
+        };
+      in
+      pkgs.stdenv.mkDerivation {
+        buildCommand = ''
+          mkdir -p $out
+          install -m 644 ${documentation'.root}/README.md $out/README.md
+          ${lib.concatMapStrings (
+            entry: "install -D -m 644 ${entry.doc}/README.md $out/${entry.relative}\n"
+          ) (documentation'.modules ++ documentation'.files)}
+        '';
+        meta.description = "Documentation tree: the repository README plus one README per module.";
+        name = "docs-tree";
+      };
+    # Documents one app: how to run it and what its meta.description says.
+    #
+    # # Arguments
+    # - `name`: attribute name of the app
+    # - `app`: the app record being documented
+    documentApp =
+      { app, name }:
+      section {
+        description = app.meta.description or "";
+        language = "sh";
+        title = name;
+        type = "app";
+        usage = "nix run .#${name}";
+      };
+    # Documents one check: how to build it and the assertions it makes.
+    #
+    # # Arguments
+    # - `system`: system string selecting the check set
+    # - `name`: attribute name of the check
+    # - `check`: the check derivation being documented
+    documentCheck =
+      {
+        check,
+        name,
+        system,
+      }:
+      section {
+        description = check.meta.description or "";
+        language = "sh";
+        title = name;
+        type = "derivation";
+        usage = "nix build .#checks.${system}.${name}";
+      };
+    # Documents one NixOS configuration: how to build it, its host name and its system.
+    #
+    # # Arguments
+    # - `name`: attribute name of the configuration
+    # - `configuration`: the evaluated configuration being documented
+    documentConfiguration =
+      { configuration, name }:
+      section {
+        description = "hostName ${
+          toString (configuration.config.networking.hostName or "nixos")
+        }, system ${configuration.pkgs.stdenv.hostPlatform.system}";
+        language = "sh";
+        title = name;
+        type = "NixOS configuration";
+        usage = "nix build .#nixosConfigurations.${name}.config.system.build.toplevel";
+      };
+    # Documents one library function: its call shape, the types from the doc block above it, and the doc block's summary.
+    #
+    # # Arguments
+    # - `name`: attribute name of the function, used to find its doc block
+    # - `fn`: the function being documented
+    # - `namespace`: attribute path the function is reachable from, so the usage snippet can be called as written
+    documentFunction =
+      {
+        fn,
+        name,
+        namespace ? "lib",
+      }:
+      let
+        argumentNames = if probed.success then builtins.attrNames probed.value else [ ];
+        probed = builtins.tryEval (builtins.functionArgs fn);
+      in
+      section {
+        arguments = map (argument: {
+          inherit argument;
+          argumentType = argumentTypeOf name argument;
+        }) argumentNames;
+        description = docSummary name;
+        documented = hasDocBlock name;
+        language = "nix";
+        title = name;
+        type = "function";
+        usage = "${namespace}.${name} ${functionSignature fn}";
+      };
+    # Documents one package: how to run it when it has a mainProgram, how to build it otherwise, what its
+    # meta.description says, and which checks it is tested by.
+    #
+    # # Arguments
+    # - `name`: attribute name of the package
+    # - `package`: the derivation being documented
+    # - `checks`: names of the checks this document links to, so passthru.tests entries become links
+    # - `formatter`: the flake's formatter for this system, so it is documented as `nix fmt` instead of a build
+    documentPackage =
+      {
+        name,
+        package,
+        checks ? [ ],
+        formatter ? null,
+      }:
+      section {
+        description = (package.meta or { }).description or "";
+        language = "sh";
+        tests = map (test: {
+          inherit test;
+          documented = lib.elem test checks;
+        }) (builtins.attrNames (package.passthru.tests or { }));
+        title = name;
+        type = "derivation";
+        usage =
+          if formatter != null && (package.outPath or "") == (formatter.outPath or "^") then
+            "nix fmt"
+          else if ((package.meta or { }).mainProgram or null) != null then
+            "nix run .#${name}"
+          else
+            "nix build .#${name}";
+      };
+    # Renders the section list and the per-module documents that the documentation tree is built from.
+    #
+    # # Arguments
+    # - `pkgs`: nixpkgs package set used to render option documentation
+    # - `root`: path to the repository root, used to locate module files
+    # - `system`: system string selecting the packages, apps and checks to document
+    # - `name`: repository name, used as the document title
+    # - `description`: sentence saying what this flake is for
+    # - `apps`: attrset of apps to document, empty when the flake exports none
+    # - `formatter`: the derivation exposed as the flake formatter for this system
+    # - `checks`: attrset of checks to document, empty when the flake exports none
+    # - `configurations`: attrset of NixOS configurations to document
+    # - `library`: attrset of functions to document in the index
+    # - `internalLibrary`: attrset of functions documented only in lib/README.md
+    # - `modules`: attrset of NixOS modules to document
+    # - `packages`: attrset of packages to document
+    documentation =
+      {
+        pkgs,
+        description,
+        name,
+        root,
+        system,
+        apps ? { },
+        checks ? { },
+        configurations ? { },
+        formatter ? null,
+        internalLibrary ? { },
+        library ? { },
+        modules ? { },
+        packages ? { },
+      }:
+      let
+        documentedChecks = lib.filterAttrs (
+          checkName: _:
+          !(packages ? ${checkName})
+          && !(lib.hasPrefix "devshell-" checkName)
+          && !(lib.hasPrefix "pkgs-" checkName)
+        ) checks;
+        files =
+          map (group: {
+            inherit (group) relative;
+            doc = writeDocumentation {
+              inherit pkgs;
+              description = "${description} — ${lib.toLower group.title}";
+              name = group.title;
+              sections = group.entries;
+            };
+          }) groupDocuments
+          ++ lib.optional (library != { } || internalLibrary != { }) {
+            doc = writeDocumentation {
+              inherit pkgs;
+              description = "Library functions of ${name}, separated into those that are part of the public surface and those that are not.";
+              name = "${name} (library)";
+              sections = librarySections;
+            };
+            relative = "lib/README.md";
+            sections = librarySections;
+          };
+        groupDocuments =
+          let
+            declared = [
+              {
+                entries = lib.mapAttrsToList (
+                  n: c:
+                  documentConfiguration {
+                    configuration = c;
+                    name = n;
+                  }
+                ) configurations;
+                relative = "systems/README.md";
+                title = "Systems";
+              }
+              {
+                entries = lib.mapAttrsToList (
+                  n: p:
+                  documentPackage {
+                    inherit formatter;
+                    checks = builtins.attrNames documentedChecks;
+                    name = n;
+                    package = p;
+                  }
+                ) packages;
+                relative = "packages/README.md";
+                title = "Packages";
+              }
+              {
+                entries = lib.mapAttrsToList (
+                  n: a:
+                  documentApp {
+                    app = a;
+                    name = n;
+                  }
+                ) apps;
+                relative = "apps/README.md";
+                title = "Apps";
+              }
+              {
+                entries = lib.mapAttrsToList (
+                  n: fn:
+                  documentFunction {
+                    inherit fn;
+                    name = n;
+                  }
+                ) (lib.filterAttrs (_name: builtins.isFunction) library);
+                relative = "library/README.md";
+                title = "Library";
+              }
+              {
+                entries = lib.mapAttrsToList (
+                  n: c:
+                  documentCheck {
+                    inherit system;
+                    check = c;
+                    name = n;
+                  }
+                ) documentedChecks;
+                relative = "checks/README.md";
+                title = "Checks";
+              }
+            ];
+          in
+          lib.filter (group: group.entries != [ ]) (
+            map (group: group // { entries = lib.sort (a: b: a.title < b.title) group.entries; }) declared
+          );
+        groupSummary =
+          group:
+          mkSection {
+            inherit (group) title;
+            body = lib.concatStringsSep "\n" (
+              map (
+                entry:
+                "- [${entry.title}](${group.relative}#${slug entry.title})"
+                + lib.optionalString (
+                  (group.showDescriptions or true) && entry.description != ""
+                ) " — ${lib.head (lib.splitString "\n" entry.description)}"
+              ) group.entries
+            );
+          };
+        groupSummaryOf =
+          title:
+          let
+            group = lib.findFirst (each: each.title == title) null groupDocuments;
+          in
+          lib.optional (group != null) (groupSummary group);
+        librarySections =
+          let
+            internalFunctions = map (
+              n:
+              documentFunction {
+                fn = internalLibrary.${n};
+                name = n;
+                namespace = "lib.internal";
+              }
+            ) internalNames;
+            internalNames = lib.sort (a: b: a < b) (
+              builtins.attrNames (lib.filterAttrs (_name: builtins.isFunction) internalLibrary)
+            );
+            publicFunctions = map (
+              n:
+              documentFunction {
+                fn = library.${n};
+                name = n;
+              }
+            ) publicNames;
+            publicNames = lib.sort (a: b: a < b) (
+              builtins.attrNames (lib.filterAttrs (_name: builtins.isFunction) library)
+            );
+          in
+          if publicFunctions != [ ] && internalFunctions != [ ] then
+            [
+              (mkSection {
+                sections = publicFunctions;
+                title = "Public";
+              })
+              (mkSection {
+                sections = internalFunctions;
+                title = "Internal";
+              })
+            ]
+          else
+            publicFunctions ++ internalFunctions;
+        moduleDoc =
+          moduleName:
+          let
+            info = contributed modules moduleName;
+          in
+          {
+            doc = writeDocumentation {
+              inherit pkgs;
+              description = if info.description != "" then info.description else summary info;
+              name = moduleName;
+              sections = [
+                (section {
+                  language = "nix";
+                  title = "Usage";
+                  type = "NixOS module";
+                  usage = "imports = [ inputs.<flake>.nixosModules.${moduleName} ];";
+                })
+                (section {
+                  bodyFile = optionsDoc pkgs info.options;
+                  sections = [
+                    (section {
+                      description = "Declare values under the namespaces above; the interface asserts their referential integrity.";
+                      language = "nix";
+                      title = "example";
+                      usage = "{ }";
+                    })
+                  ];
+                  title = "Options";
+                  usage = "";
+                })
+              ];
+            };
+            relative = moduleReadmePath root moduleName;
+          };
+        moduleIndex =
+          moduleName:
+          let
+            info = contributed modules moduleName;
+          in
+          section {
+            description = if info.description != "" then info.description else summary info;
+            language = "nix";
+            title = "[${moduleName}](${moduleReadmePath root moduleName})";
+            type = "NixOS module";
+            usage = "imports = [ inputs.<flake>.nixosModules.${moduleName} ];";
+          };
+        moduleNames = lib.sort (a: b: a < b) (builtins.attrNames modules);
+        sections =
+          groupSummaryOf "Apps"
+          ++ groupSummaryOf "Systems"
+          ++ lib.optional (moduleNames != [ ]) (mkSection {
+            sections = map moduleIndex moduleNames;
+            title = "Modules";
+          })
+          ++ groupSummaryOf "Packages"
+          ++ groupSummaryOf "Library"
+          ++ groupSummaryOf "Checks";
+        slug = text: lib.replaceStrings [ " " ] [ "-" ] (lib.toLower text);
+        summary = info: lib.concatStringsSep ", " (map (group: "${group}.*") info.names);
+      in
+      {
+        inherit sections;
+        inherit files;
+        modules = map moduleDoc moduleNames;
+        problems = documentationProblems {
+          inherit description name;
+          sections = sections ++ lib.concatMap (group: group.entries) groupDocuments;
+        };
+        root = writeDocumentation {
+          inherit description name pkgs;
+          inherit sections;
+        };
+      };
+    # Reports every way a rendered document falls short of being usable: purpose unstated, usage missing, arguments untyped.
+    #
+    # # Arguments
+    # - `name`: repository name, which the description must not merely repeat
+    # - `description`: sentence stating what the flake is for
+    # - `sections`: the rendered sections that are inspected
+    documentationProblems =
+      {
+        description,
+        name,
+        sections,
+      }:
+      let
+        all = lib.concatMap (flatten "") sections;
+        flatten =
+          prefix: section:
+          [
+            {
+              inherit prefix section;
+              path = if prefix == "" then section.title else "${prefix} / ${section.title}";
+            }
+          ]
+          ++ lib.concatMap (flatten (
+            if prefix == "" then section.title else "${prefix} / ${section.title}"
+          )) section.sections;
+        unlabelled = lib.filter (entry: entry.section.usage != "" && entry.section.language == "") all;
+        unsigned = lib.filter (entry: lib.hasSuffix " " entry.section.usage) all;
+        untyped = lib.filter (entry: entry.section.usage != "" && entry.section.type == "") all;
+        withoutUsage = lib.filter (
+          entry: entry.section.sections == [ ] && entry.section.usage == "" && entry.section.body == null
+        ) all;
+      in
+      lib.optional (
+        description == ""
+      ) "the flake description is empty: it is the only statement of what this flake is for"
+      ++
+        lib.optional (builtins.stringLength description < 40)
+          "the flake description is ${toString (builtins.stringLength description)} characters: too short to say what this flake is for"
+      ++ lib.optional (description == name) "the flake description only repeats the repository name"
+      ++ map (
+        entry: "${entry.path}: documents a thing without a usage line, so how to use it is not stated"
+      ) withoutUsage
+      ++ map (
+        entry: "${entry.path}: usage line carries no argument shape, so the call cannot be inferred"
+      ) unsigned
+      ++ map (
+        entry:
+        "${entry.path}: usage line carries no language label, so the syntax of the snippet is ambiguous"
+      ) unlabelled
+      ++ map (entry: "${entry.path}: names no type, so what the thing is cannot be stated") untyped
+      ++ lib.concatMap (
+        entry:
+        map (
+          argument:
+          "${entry.path}: argument '${argument.argument}' has no documented type, so the reader cannot tell what to pass"
+        ) (lib.filter (argument: argument.argumentType == "") entry.section.arguments)
+      ) all
+      ++ map (
+        entry:
+        "${entry.path}: is a function with no documentation block above it, so nothing states what it is for or what it accepts"
+      ) (lib.filter (entry: entry.section.type == "function" && !entry.section.documented) all);
+    # Reports assertion messages that do not name a declared option, or that omit the expected value and the fix.
+    #
+    # # Arguments
+    # - `assertions`: list of { assertion, message } records whose messages are inspected
+    # - `options`: evaluated option set the message paths are resolved against
+    messageProblems =
+      {
+        assertions,
+        options,
+      }:
+      let
+        firstLine = message: lib.head (lib.splitString "\n" message);
+      in
+      lib.concatMap (
+        assertion:
+        let
+          declared = prefixed && lib.hasAttrByPath (lib.splitString "." path) options;
+          parts = lib.splitString ": " (firstLine assertion.message);
+          path = lib.head parts;
+          prefixed = lib.length parts > 1;
+        in
+        lib.optional (!prefixed) "message has no '<path>: ' prefix: ${assertion.message}"
+        ++ lib.optional (prefixed && !declared) "message names '${path}', which is not a declared option"
+        ++ lib.optional (
+          !(lib.hasInfix "expected:" assertion.message)
+        ) "message has no 'expected:' line: ${path}"
+        ++ lib.optional (
+          !(lib.hasInfix "how to fix:" assertion.message)
+        ) "message has no 'how to fix:' line: ${path}"
+      ) assertions;
+    # Builds an assertion record whose message states the violation, what was expected and how to fix it.
+    #
+    # # Arguments
+    # - `at`: list of attribute names naming the option the assertion is about
+    # - `condition`: the property being asserted, true when it holds
+    # - `violation`: sentence saying what is wrong when the condition is false
+    # - `expected`: sentence saying what the configuration should look like instead
+    # - `fix`: sentence saying how to make it look that way
+    mkAssertion =
+      {
+        at,
+        condition,
+        expected,
+        fix,
+        violation,
+      }:
+      {
+        assertion = condition;
+        message = ''
+          ${renderPath at}: ${violation}
+            expected: ${expected}
+            how to fix: ${fix}
+        '';
+      };
+    # Groups child sections under one title, for a part of the document that is itself not a usable thing.
+    #
+    # # Arguments
+    # - `title`: heading text of the group
+    # - `sections`: child sections, rendered one heading level deeper, empty when the group only holds prose
+    # - `body`: markdown emitted under the title instead of child headings, null when there is none
+    mkSection =
+      {
+        title,
+        body ? null,
+        sections ? [ ],
+      }:
+      {
+        inherit sections title;
+        inherit body;
+        arguments = [ ];
+        bodyFile = null;
+        description = "";
+        documented = true;
+        language = "";
+        tests = [ ];
+        type = "";
+        usage = "";
+      };
+    # Runs treefmt through this flake's formatter, plus deadnix, statix and pedantix.
+    #
+    # # Arguments
+    # - `pkgs`: nixpkgs package set the hooks are taken from
+    # - `src`: the tree the hooks are run against
+    preCommit =
+      { pkgs, src }:
+      let
+        docsHook = pkgs.writeShellScript "docs-hook" ''
+          if [ ! -d "$PWD/.git" ]; then
+            exit 0
+          fi
+          if ! command -v nix > /dev/null 2>&1; then
+            echo "docs: nix is not available in this environment, skipping the documentation check"
+            exit 0
+          fi
+          exec ${inputs.self.packages.${system}.docs}/bin/docs --check
+        '';
+        result = inputs.git-hooks.lib.${system}.run {
+          inherit src;
+          hooks.docs = {
+            enable = true;
+            entry = "${docsHook}";
+            language = "system";
+            name = "docs";
+            pass_filenames = false;
+          };
+          hooks.treefmt = {
+            enable = true;
+            packageOverrides.treefmt = inputs.self.formatter.${system};
+          };
+        };
+        system = pkgs.stdenv.hostPlatform.system;
+      in
+      result
+      // {
+        meta = (result.meta or { }) // {
+          description = "Runs treefmt through this flake's formatter, plus deadnix, statix and pedantix.";
+        };
+      };
+    # Fails when a committed README differs from the generated documentation, or when README.md and checks/README.md
+    # disagree about a check.
+    #
+    # # Arguments
+    # - `pkgs`: nixpkgs package set used to render and compare the documents
+    # - `root`: path to the repository root holding the committed READMEs
+    # - `system`: system string selecting the documented outputs
+    # - `name`: repository name, used as the document title
+    # - `description`: sentence saying what this flake is for
+    # - `apps`: attrset of apps to document, empty when the flake exports none
+    # - `formatter`: the derivation exposed as the flake formatter for this system
+    # - `checks`: attrset of checks to document, empty when the flake exports none
+    # - `configurations`: attrset of NixOS configurations to document
+    # - `library`: attrset of functions to document in the index
+    # - `internalLibrary`: attrset of functions documented only in lib/README.md
+    # - `modules`: attrset of NixOS modules to document
+    # - `packages`: attrset of packages to document
+    readmeGate =
+      {
+        pkgs,
+        description,
+        name,
+        root,
+        system,
+        apps ? { },
+        checks ? { },
+        configurations ? { },
+        formatter ? null,
+        internalLibrary ? { },
+        library ? { },
+        modules ? { },
+        packages ? { },
+      }:
+      let
+        documentation' = documentation {
+          inherit
+            pkgs
+            root
+            system
+            name
+            description
+            apps
+            checks
+            configurations
+            internalLibrary
+            formatter
+            library
+            modules
+            packages
+            ;
+        };
+      in
+      pkgs.stdenv.mkDerivation {
+        buildCommand = ''
+          result="$out"
+          out="$TMPDIR/generated"
+          mkdir -p "$out"
+          install -m 644 ${documentation'.root}/README.md "$out/README.md"
+          ${lib.concatMapStrings (
+            entry: "install -D -m 644 ${entry.doc}/README.md \"$out/${entry.relative}\"\n"
+          ) (documentation'.modules ++ documentation'.files)}
+          status=0
+          strip_checks() {
+            awk 'BEGIN { skip = 0 } /^## Checks$/ { skip = 1; next } skip == 1 && /^## / { skip = 0 } skip == 0 { print }' "$1"
+          }
+          while IFS= read -r -d "" found; do
+            file="''${found#./}"
+            case "$file" in
+              modules/nixos/*/README.md)
+                hint="nix run .#docs -- --module $(echo "$file" | sed -e 's|modules/nixos/||; s|/README.md$||')"
+                ;;
+              modules/nixos/*.README.md)
+                hint="nix run .#docs -- --module $(echo "$file" | sed -e 's|modules/nixos/||; s|\.README\.md$||')"
+                ;;
+              *)
+                hint="nix run .#docs"
+                ;;
+            esac
+            committed="${root}/$file"
+            if [ "$file" = "README.md" ] && [ -f "$committed" ]; then
+              strip_checks "$committed" > "$TMPDIR/committed.md"
+              committed="$TMPDIR/committed.md"
+            fi
+            if [ ! -f "${root}/$file" ]; then
+              echo "missing: $file (create it with: $hint)" >&2
+              status=1
+            elif ! diff -q "$out/$file" "$committed" > /dev/null; then
+              echo "out of date: $file (regenerate it with: $hint)" >&2
+              status=1
+            fi
+          done < <(cd "$out" && find . -type f -print0)
+          while IFS= read -r -d "" found; do
+            committedFile="''${found#./}"
+            if [ "$committedFile" = "checks/README.md" ]; then
+              continue
+            fi
+            if [ ! -f "$out/$committedFile" ]; then
+              echo "stale: $committedFile (this flake does not generate it; delete it with: rm $committedFile)" >&2
+              status=1
+            fi
+          done < <(cd "${root}" && find . -iname '*readme*.md' -not -path './.git/*' -print0)
+          if [ -d "${root}/checks" ] && [ -f "${root}/checks/README.md" ]; then
+            while IFS= read -r -d "" source; do
+              checkName=$(basename "$source" .nix)
+              if ! grep -qx "## $checkName" "${root}/checks/README.md"; then
+                echo "checks/README.md has no section for $checkName (regenerate it with: nix run .#docs)" >&2
+                status=1
+              fi
+            done < <(find "${root}/checks" -maxdepth 1 -name '*.nix' -print0)
+            for documented in $(grep '^## ' "${root}/checks/README.md" | sed -e 's|^## ||'); do
+              if [ ! -f "${root}/checks/$documented.nix" ]; then
+                echo "checks/README.md documents $documented, which no file in checks/ provides (regenerate it with: nix run .#docs)" >&2
+                status=1
+              fi
+            done
+            awk '
+              /^## / { name = substr($0, 4); next }
+              /^\*Type:\*/ { afterType = 1; next }
+              afterType && NF { print name "\t" $0; afterType = 0 }
+            ' "${root}/checks/README.md" > "$TMPDIR/check-descriptions"
+            while IFS="$(printf '\t')" read -r checkName checkDescription; do
+              [ -n "$checkName" ] || continue
+              if ! grep -Fq -- "- [$checkName](checks/README.md#$checkName) — $checkDescription" "${root}/README.md"; then
+                echo "README.md does not state the description checks/README.md gives $checkName (regenerate it with: nix run .#docs)" >&2
+                status=1
+              fi
+            done < "$TMPDIR/check-descriptions"
+            for listed in $(grep -o -- '- \[[^]]*\](checks/README.md#[^)]*)' "${root}/README.md" | sed -e 's|^- \[||; s|\](checks/README.md#.*||'); do
+              if ! grep -qx "## $listed" "${root}/checks/README.md"; then
+                echo "README.md lists $listed under Checks, which checks/README.md does not document (regenerate it with: nix run .#docs)" >&2
+                status=1
+              fi
+            done
+          fi
+          if [ "$status" -ne 0 ]; then
+            exit 1
+          fi
+          touch "$result"
+        '';
+        meta.description = "Fails when a committed README differs from the generated documentation, or when README.md and checks/README.md disagree about a check.";
+        name = "readme-gate";
+      };
+    # One documented thing: what it is, how to call or import it, what its arguments are and any child sections.
+    #
+    # # Arguments
+    # - `title`: heading text naming the thing
+    # - `usage`: snippet that uses the thing, shown in a fenced block
+    # - `description`: sentence saying what the thing is for, empty when the title says it
+    # - `language`: code fence language of the usage snippet, for example nix or sh
+    # - `type`: what the thing is, for example derivation, app or NixOS module
+    # - `arguments`: list of { argument, argumentType } describing the call shape
+    # - `documented`: whether authored prose exists for the thing, false when it is undocumented
+    # - `body`: markdown emitted under the title, null when there is none
+    # - `bodyFile`: path to a rendered markdown fragment appended after the description
+    # - `sections`: child sections, rendered one heading level deeper
+    # - `tests`: list of { test, documented } naming the checks the thing is tested by
+    section =
+      {
+        title,
+        usage,
+        arguments ? [ ],
+        body ? null,
+        bodyFile ? null,
+        description ? "",
+        documented ? true,
+        language ? "",
+        sections ? [ ],
+        tests ? [ ],
+        type ? "",
+      }:
+      {
+        inherit
+          title
+          usage
+          description
+          documented
+          language
+          arguments
+          type
+          body
+          bodyFile
+          sections
+          tests
+          ;
+      };
+    # Renders the test links of a section: a markdown link when the check is documented, plain text when it is not.
+    #
+    # # Arguments
+    # - `tests`: list of { test, documented } records naming the checks a package is tested by
+    testsLine = renderTestLinks;
+    # Renders a list of sections into a README derivation.
+    #
+    # # Arguments
+    # - `pkgs`: nixpkgs package set the derivation is built with
+    # - `name`: document title
+    # - `description`: sentence under the title saying what the documented thing is for
+    # - `sections`: sections to render, each with its own heading
+    writeDocumentation =
+      {
+        pkgs,
+        description,
+        name,
+        sections,
+      }:
+      pkgs.stdenv.mkDerivation {
+        buildCommand = ''
+          mkdir -p $out
+          printf '# %s\n\n%s\n\n' ${lib.escapeShellArg name} ${lib.escapeShellArg description} > $out/README.md
+          ${lib.concatStringsSep "\n" (lib.concatMap (renderSection 2) sections)}
+        '';
+        meta.description = "Rendered documentation: the repository README plus one README per module.";
+        name = "documentation-${name}";
+      };
+  };
+  firstFalse =
+    predicate: list:
+    lib.findFirst (index: !(predicate (lib.elemAt list index))) (lib.length list) (
+      lib.genList (index: index) (lib.length list)
+    );
+  flattenOptions =
+    prefix: options:
+    lib.concatLists (
+      lib.mapAttrsToList (
+        name: value:
+        let
+          path = prefix ++ [ name ];
+        in
+        if !(builtins.isAttrs value) then
+          [ ]
+        else if (value._type or null) == "option" then
+          [
+            {
+              inherit path value;
+            }
+          ]
+        else
+          flattenOptions path value
+      ) options
+    );
+  functionSignature =
+    fn:
+    let
+      probed = builtins.tryEval (builtins.functionArgs fn);
+    in
+    if !probed.success || probed.value == { } then
+      ""
+    else
+      "{ "
+      + lib.concatStringsSep ", " (
+        lib.mapAttrsToList (
+          argument: defaulted: if defaulted then "${argument} ? …" else argument
+        ) probed.value
+      )
+      + " }";
+  harness = {
+    config.networking.domain = "test";
+    options.assertions = lib.mkOption {
+      default = [ ];
+      internal = true;
+      type = lib.types.listOf lib.types.unspecified;
+    };
+    options.networking.domain = lib.mkOption {
+      description = "Domain the documentation harness uses to derive host names.";
+      type = lib.types.str;
+    };
+    options.warnings = lib.mkOption {
+      default = [ ];
+      internal = true;
+      type = lib.types.listOf lib.types.unspecified;
+    };
+  };
+  hasDocBlock = name: commentBefore name != [ ];
+  indexedLines = lib.imap0 (i: line: { inherit i line; }) sourceLines;
+  lib = inputs.nixpkgs.lib;
+  moduleReadmePath =
+    root: moduleName:
+    if builtins.pathExists (root + "/modules/nixos/${moduleName}") then
+      "modules/nixos/${moduleName}/README.md"
+    else
+      "modules/nixos/${moduleName}.README.md";
+  optionsDoc =
+    pkgs: options:
+    (pkgs.nixosOptionsDoc {
+      inherit options;
+      transformOptions = option: option // { declarations = [ ]; };
+    }).optionsCommonMark;
+  renderPath = path: lib.concatStringsSep "." path;
+  renderSection =
+    depth: s:
+    let
+      esc = lib.escapeShellArg;
+      head = "${lib.concatStringsSep "" (lib.genList (_: "#") depth)} ${s.title}";
+    in
+    [ "printf '%s\n\n' ${esc head} >> $out/README.md" ]
+    ++ lib.optionals (s.usage != "") [
+      "printf '```%s\n%s\n```\n\n' ${esc s.language} ${esc s.usage} >> $out/README.md"
+    ]
+    ++ lib.optionals (s.type != "") [
+      "printf '*Type:* %s\n\n' ${esc s.type} >> $out/README.md"
+    ]
+    ++ lib.optionals (s.tests != [ ]) [
+      "printf '*Tests:* %s\n\n' ${
+        esc (renderTestLinks {
+          inherit (s) tests;
+        })
+      } >> $out/README.md"
+    ]
+    ++ lib.optionals (s.arguments != [ ]) [
+      "printf '*Arguments:*\n\n' >> $out/README.md"
+    ]
+    ++ lib.concatMap (argument: [
+      "printf -- '- `%s`: %s\n' ${esc argument.argument} ${
+        esc (if argument.argumentType != "" then argument.argumentType else "undocumented type")
+      } >> $out/README.md"
+    ]) s.arguments
+    ++ lib.optionals (s.arguments != [ ]) [ "printf '\n' >> $out/README.md" ]
+    ++ lib.optionals (s.description != "") [
+      "printf '%s\n\n' ${esc s.description} >> $out/README.md"
+    ]
+    ++ lib.optionals (s.body != null) [
+      "printf '%s\n\n' ${esc s.body} >> $out/README.md"
+    ]
+    ++ lib.optionals (s.bodyFile != null) [
+      "sed -e 's/^## /### /' ${s.bodyFile} >> $out/README.md"
+      "printf '\n' >> $out/README.md"
+    ]
+    ++ lib.concatMap (renderSection (depth + 1)) s.sections;
+  renderTestLinks =
+    { tests }:
+    lib.concatStringsSep ", " (
+      map (
+        test:
+        if test.documented then
+          "[${test.test}](#${lib.replaceStrings [ " " ] [ "-" ] (lib.toLower test.test)})"
+        else
+          test.test
+      ) tests
+    );
+  sourceLines = lib.splitString "\n" (builtins.readFile ./default.nix);
+  takeWhile = predicate: list: lib.take (firstFalse predicate list) list;
+  trimLeft = line: if lib.hasPrefix " " line then trimLeft (lib.removePrefix " " line) else line;
+  words =
+    text:
+    let
+      separators = [
+        "`"
+        "("
+        ")"
+        "["
+        "]"
+        ","
+        "."
+        ":"
+        ";"
+        "\n"
+        "\t"
+      ];
+    in
+    lib.filter (part: part != "") (
+      lib.splitString " " (
+        lib.replaceStrings separators (lib.genList (_: " ") (lib.length separators)) text
+      )
+    );
+in
+{
+  internal = everything;
+}

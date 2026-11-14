@@ -33,6 +33,7 @@
     in
     {
       packages.${system} = {
+        all-types = jailed "all-types";
         check-mode = jailed "check-mode";
         gate = jailed "gate";
         template = jailed "template";

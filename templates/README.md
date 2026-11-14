@@ -12,3 +12,5 @@ nix flake init -t github:synackdoche/flake#minimal
 
 Minimal repository — the smallest flake that uses the SYNACKDOCHE base flake
 
+*Source:* [templates/minimal/flake.nix](templates/minimal/flake.nix)
+

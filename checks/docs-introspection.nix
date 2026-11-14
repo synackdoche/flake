@@ -13,11 +13,11 @@ let
     };
     name = "probe";
   };
-  args = inputs.self.lib.flakeArgs {
+  args = inputs.self.lib.internal.flakeArgs {
     inherit pkgs;
     checks = { };
     flake = inputs.self;
-    root = ../.;
+    root = inputs.self.outPath;
   };
   argsWithPublicLibrary = args // {
     library.probeFn = { value }: value;
@@ -103,16 +103,8 @@ let
       message = "a library with public and internal functions states which is which, in one document, under Public and Internal headings";
     }
     {
-      assertion =
-        builtins.attrNames inputs.self.lib == [
-          "devShell"
-          "docsGate"
-          "flakeArgs"
-          "internal"
-          "preCommit"
-          "readmeGate"
-        ];
-      message = "the public library is exactly the surface a consuming repository calls: docsGate, flakeArgs, readmeGate, preCommit and devShell, with everything else under lib.internal";
+      assertion = builtins.attrNames inputs.self.lib == [ "internal" ];
+      message = "the whole library is internal, because a consuming repository calls the base flake directly and the callable mixin supplies the documentation arguments, the gates, the pre-commit hook set and the development shell";
     }
     {
       assertion = builtins.attrNames inputs.self.lib.internal != [ ];
@@ -188,15 +180,8 @@ let
         args.modules == inputs.self.nixosModules
         && args.packages == inputs.self.packages.${pkgs.stdenv.hostPlatform.system}
         && args.formatter == inputs.self.formatter.${pkgs.stdenv.hostPlatform.system}
-        &&
-          builtins.attrNames args.library == [
-            "devShell"
-            "docsGate"
-            "flakeArgs"
-            "preCommit"
-            "readmeGate"
-          ];
-      message = "the documentation arguments are derived from the flake: its modules, packages, formatter and public library";
+        && builtins.attrNames args.library == [ ];
+      message = "the documentation arguments are derived from the flake: its modules, packages, formatter and an internal-only library";
     }
     {
       assertion =
@@ -290,8 +275,26 @@ let
       message = "a function documented in a file other than the library entry point is found, with its summary and argument types";
     }
     {
+      assertion =
+        rfc145Function.documented
+        && rfc145Function.description == "Adds two numbers together."
+        &&
+          (lib.map (arg: arg.argumentType) rfc145Function.arguments) == [
+            "Number"
+            "Number"
+          ];
+      message = "an RFC-145 /** doc comment with a definition-list and a # Type signature is read, its argument types filled positionally from the signature";
+    }
+    {
       assertion = internalFunction.documented && internalProblems == [ ];
       message = "an internal function may leave its arguments undocumented without being reported, while its doc block is still used";
+    }
+    {
+      assertion =
+        !legacyFunction.documented
+        && lib.elem "legacy: is documented with a `#` line-comment block directly above it, which is not read; the only doc-comment format is the RFC-145 `/** */` block" legacyProblems
+        && lib.elem "legacy: is a function with no documentation block above it, so nothing states what it is for or what it accepts" legacyProblems;
+      message = "a function documented with the former `#` line-comment format is no longer documented, and the documentation check reports it: the parser reads only RFC-145 `/** */` blocks";
     }
     {
       assertion =
@@ -430,20 +433,55 @@ let
     description = "A flake that exists to check the documentation rules themselves.";
     sections = [ internalFunction ];
   };
+  legacyFunction = inputs.self.lib.internal.documentFunction {
+    fn = { value }: value;
+    name = "legacy";
+    source = libraryFixture + "/lib";
+  };
+  legacyProblems = inputs.self.lib.internal.documentationProblems {
+    description = "A flake that exists to check the documentation rules themselves.";
+    sections = [ legacyFunction ];
+  };
   libraryFixture = pkgs.runCommand "library-fixture" { } ''
     mkdir -p $out/lib
     printf '%s\n' '{ }' > $out/lib/first.nix
     cat > $out/lib/second.nix <<'EOF'
     {
-      # Summarises the second function, defined in another file.
-      #
-      # # Arguments
-      # - `value`: the value the function returns, and the doc block bullet
-      #   wraps onto a second line that the parser joins
+      /**
+        Summarises the second function, defined in another file.
+
+        # Arguments
+
+        - `value`: the value the function returns, and the doc block bullet
+          wraps onto a second line that the parser joins
+      */
       second = { value }: value;
 
-      # Summarises the internal function, whose arguments are not documented.
+      /**
+        Summarises the internal function, whose arguments are not documented.
+      */
       third = { value }: value;
+
+      # Summarises the legacy function, using the former line-comment format.
+      # The parser reads only RFC-145 block comments, so this block is a comment.
+      legacy = { value }: value;
+
+      /**
+        Adds two numbers together.
+
+        # Type
+
+        add :: Number -> Number -> Number
+
+        # Arguments
+
+        a
+        : The first number
+
+        b
+        : The second number
+      */
+      add = a: b: a + b;
     }
     EOF
   '';
@@ -455,6 +493,11 @@ let
       type = "template";
       usage = "nix run .#probe";
     };
+  };
+  rfc145Function = inputs.self.lib.internal.documentFunction {
+    fn = { a, b }: a + b;
+    name = "add";
+    source = libraryFixture + "/lib";
   };
   runnablePackage = inputs.self.lib.internal.documentPackage {
     name = "runnable";

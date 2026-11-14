@@ -67,6 +67,80 @@ let
   system = pkgs.stdenv.hostPlatform.system;
 in
 {
+  all-types = suite "all-types" ''
+    mkdir "$work/alltypes"
+    cd "$work/alltypes"
+    nix flake init -t "$repo#minimal" > /dev/null 2>&1 || fail "all-types: could not instantiate the minimal template"
+    sed -i "s|url = \"github:synackdoche/flake\";|url = \"path:$repo\";|" flake.nix
+    sed -i 's|description = "Minimal repository — the smallest flake that uses the SYNACKDOCHE base flake";|description = "All-types consumer exercising every documented output kind of the base flake";|' flake.nix
+
+    mkdir -p modules/nixos packages lib hosts/example templates/demo
+    echo '{ config, lib, ... }:' > modules/nixos/example.nix
+    echo '{' >> modules/nixos/example.nix
+    echo '  options = {' >> modules/nixos/example.nix
+    echo '    meta.description = lib.mkOption { description = "What the module provides, shown as its summary."; default = "Enables the example subsystem."; type = lib.types.str; };' >> modules/nixos/example.nix
+    echo '    example.enabled = lib.mkOption { description = "Whether the example subsystem is enabled."; default = false; type = lib.types.bool; };' >> modules/nixos/example.nix
+    echo '  };' >> modules/nixos/example.nix
+    echo '}' >> modules/nixos/example.nix
+    printf '%s\n' '{ pkgs, ... }:' 'pkgs.hello' > packages/hello.nix
+    echo '{ inputs, ... }:' > lib/default.nix
+    echo '{' >> lib/default.nix
+    echo '  /**' >> lib/default.nix
+    echo '    Doubles its argument.' >> lib/default.nix
+    echo >> lib/default.nix
+    echo '    # Type' >> lib/default.nix
+    echo >> lib/default.nix
+    echo '    double :: Int -> Int' >> lib/default.nix
+    echo >> lib/default.nix
+    echo '    # Arguments' >> lib/default.nix
+    echo >> lib/default.nix
+    echo '    - `x`: the value to double' >> lib/default.nix
+    echo '  */' >> lib/default.nix
+    echo '  double = { x }: x * 2;' >> lib/default.nix
+    echo '}' >> lib/default.nix
+    echo '{ config, lib, pkgs, ... }:' > hosts/example/configuration.nix
+    echo '{' >> hosts/example/configuration.nix
+    echo '  networking.hostName = "example";' >> hosts/example/configuration.nix
+    echo '  system.stateVersion = "24.05";' >> hosts/example/configuration.nix
+    echo '  nixpkgs.hostPlatform = "x86_64-linux";' >> hosts/example/configuration.nix
+    echo '  fileSystems."/" = { device = "none"; fsType = "tmpfs"; };' >> hosts/example/configuration.nix
+    echo '  boot.loader.systemd-boot.enable = true;' >> hosts/example/configuration.nix
+    echo '}' >> hosts/example/configuration.nix
+    echo '{ description = "A demo template."; }' > templates/demo/flake.nix
+
+    git init -q
+    git add -A
+    rm -f flake.lock
+    nix flake lock > "$work/alltypes-lock.log" 2>&1 || fail "all-types: could not lock: $(tail -3 \"$work/alltypes-lock.log\")"
+
+    hello=$(nix eval --raw ".#packages.$system.hello.name" 2>/dev/null) || fail "all-types: the callable flake dropped the client's package"
+    echo "$hello" | grep -q hello || fail "all-types: the callable flake clobbered the client's package: $hello"
+    pass "the callable flake keeps a client's packages alongside the mixed-in docs"
+
+    nix run .#docs > "$work/alltypes-docs.log" 2>&1 || fail "all-types: the docs app failed: $(tail -3 \"$work/alltypes-docs.log\")"
+
+    [ -f modules/README.md ] || fail "all-types: no modules/README.md"
+    [ ! -f modules/nixos/example/README.md ] && [ ! -f modules/nixos/example.README.md ] || fail "all-types: a per-module README still exists"
+    grep -q '^## example$' modules/README.md || fail "all-types: modules/README.md documents no example module"
+    grep -q '\[modules/nixos/example.nix\]' modules/README.md || fail "all-types: the module has no source link"
+
+    grep -q '^## hello$' packages/README.md || fail "all-types: packages/README.md documents no hello package"
+    grep -q '\[packages/hello.nix\]' packages/README.md || fail "all-types: the package has no source link"
+
+    grep -q '^## double$' lib/README.md || fail "all-types: lib/README.md documents no double function"
+    grep -q '\[lib/default.nix:' lib/README.md || fail "all-types: the function has no source link"
+
+    [ -f systems/README.md ] || fail "all-types: no systems/README.md"
+    grep -q '^## example$' systems/README.md || fail "all-types: systems/README.md documents no example system"
+
+    grep -q '^## demo$' templates/README.md || fail "all-types: templates/README.md documents no demo template"
+    grep -q '\[templates/demo/flake.nix\]' templates/README.md || fail "all-types: the template has no source link"
+
+    grep -q 'README.md#example' README.md || fail "all-types: the root index does not link to the module or system"
+    grep -q 'packages/README.md#hello' README.md || fail "all-types: the root index does not link to the package"
+    grep -q '\(lib\|modules\|systems\|templates\)/README.md#double' README.md || fail "all-types: the root index does not link to the function"
+    pass "the docs cover a module, a system, a lib function, a package and a template, each in a single group file with a source link"
+  '';
   check-mode = suite "check-mode" ''
     cd "$repo"
     rm -f README.md lib/README.md checks/README.md packages/README.md templates/README.md

@@ -12,6 +12,8 @@ nix run .#docs
 
 Writes the generated documentation into the working tree, or checks that it is current and staged.
 
+*Source:* [packages/docs.nix](packages/docs.nix)
+
 ## formatter
 
 ```sh

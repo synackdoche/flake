@@ -11,14 +11,6 @@ shared formatter, pre-commit, docgate checks and flake scaffolding
 - [docs](packages/README.md#docs) — Writes the generated documentation into the working tree, or checks that it is current and staged.
 - [formatter](packages/README.md#formatter) — treefmt wrapper running deadnix, flake-edit, pedantix and statix with the canonical configuration.
 
-## Library
-
-- [devShell](lib/README.md#devshell) — Shell environment carrying the formatter's packages and its shell hook.
-- [docsGate](lib/README.md#docsgate) — Fails evaluation when the documentation of a flake is incomplete, so a repository can make its documentation a check instead of a convention.
-- [flakeArgs](lib/README.md#flakeargs) — Derives the arguments that document a flake, from the flake itself, so a repository states nothing about its own documentation.
-- [preCommit](lib/README.md#precommit) — Runs treefmt through this flake's formatter, plus deadnix, statix and pedantix.
-- [readmeGate](lib/README.md#readmegate) — Fails when a committed README differs from the generated documentation, or when README.md and checks/README.md disagree about a check.
-
 ## Checks
 
 - [assertions](checks/README.md#assertions) — Checks that an assertion keeps its condition and states the violation, the expectation and the fix.

@@ -3,11 +3,11 @@
   inputs,
   ...
 }:
-inputs.self.lib.readmeGate (
-  inputs.self.lib.flakeArgs {
+inputs.self.lib.internal.readmeGate (
+  inputs.self.lib.internal.flakeArgs {
     inherit pkgs;
     checks = { };
     flake = inputs.self;
-    root = ../.;
+    root = inputs.self.outPath;
   }
 )

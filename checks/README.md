@@ -12,6 +12,8 @@ nix build .#checks.x86_64-linux.assertions
 
 Checks that an assertion keeps its condition and states the violation, the expectation and the fix.
 
+*Source:* [checks/assertions.nix](checks/assertions.nix)
+
 ## descriptions
 
 ```sh
@@ -21,6 +23,8 @@ nix build .#checks.x86_64-linux.descriptions
 *Type:* derivation
 
 Checks that option descriptions are present, long enough to state a contract, unique, and free of other components of this flake.
+
+*Source:* [checks/descriptions.nix](checks/descriptions.nix)
 
 ## docs-introspection
 
@@ -32,6 +36,8 @@ nix build .#checks.x86_64-linux.docs-introspection
 
 Checks that the generated documentation is complete and usable, and that incomplete documentation is reported.
 
+*Source:* [checks/docs-introspection.nix](checks/docs-introspection.nix)
+
 ## messages
 
 ```sh
@@ -41,6 +47,8 @@ nix build .#checks.x86_64-linux.messages
 *Type:* derivation
 
 Checks that an assertion message names a declared option and states both the expectation and the fix.
+
+*Source:* [checks/messages.nix](checks/messages.nix)
 
 ## pre-commit
 
@@ -52,6 +60,8 @@ nix build .#checks.x86_64-linux.pre-commit
 
 Runs treefmt through this flake's formatter, plus deadnix, statix and pedantix.
 
+*Source:* [checks/pre-commit.nix](checks/pre-commit.nix)
+
 ## readme
 
 ```sh
@@ -61,4 +71,6 @@ nix build .#checks.x86_64-linux.readme
 *Type:* derivation
 
 Fails when a committed README differs from the generated documentation, or when README.md and checks/README.md disagree about a check.
+
+*Source:* [checks/readme.nix](checks/readme.nix)
 

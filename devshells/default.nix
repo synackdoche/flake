@@ -3,7 +3,7 @@
   inputs,
   ...
 }:
-inputs.self.lib.devShell {
+inputs.self.lib.internal.devShell {
   inherit pkgs;
   preCommit = inputs.self.checks.${pkgs.stdenv.hostPlatform.system}.pre-commit;
 }

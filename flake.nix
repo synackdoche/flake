@@ -52,22 +52,28 @@
       mixin =
         args:
         let
+          defaults = lib.listToAttrs (
+            map (system: {
+              name = system;
+              value = defaultsFor system;
+            }) (args.systems or [ ])
+          );
           defaultsFor =
             system:
             let
               existingChecks = generated.checks.${system} or { };
               pkgs = inputs.nixpkgs.legacyPackages.${system};
-              preCommit = own.lib.preCommit {
+              preCommit = own.lib.internal.preCommit {
                 inherit pkgs;
                 src = self.outPath;
               };
             in
             {
-              checks.${system} =
-                existingChecks
+              checks =
+                { }
                 // lib.optionalAttrs (!(existingChecks ? readme)) {
-                  readme = own.lib.readmeGate (
-                    own.lib.flakeArgs {
+                  readme = own.lib.internal.readmeGate (
+                    own.lib.internal.flakeArgs {
                       inherit pkgs;
                       checks = { };
                       flake = self;
@@ -79,25 +85,41 @@
                   pre-commit = preCommit;
                 }
                 // lib.optionalAttrs (!(existingChecks ? documentation)) {
-                  documentation = own.lib.docsGate {
+                  documentation = own.lib.internal.docsGate {
                     inherit pkgs;
                     flake = self;
                     root = self.outPath;
                   };
                 };
-              devShells.${system}.default =
-                (generated.devShells.${system} or { }).default or (own.lib.devShell {
+              devShells.default =
+                (generated.devShells.${system} or { }).default or (own.lib.internal.devShell {
                   inherit pkgs;
                   preCommit = existingChecks.pre-commit or preCommit;
                 });
-              formatter.${system} = if hasOwnFormatter then generated.formatter.${system} else formatterFor pkgs;
-              packages.${system}.docs = (generated.packages.${system} or { }).docs or (docsFor system);
+              formatter = formatterFor pkgs;
+              packages.docs = (generated.packages.${system} or { }).docs or (docsFor system);
             };
           generated = blueprint args;
           hasOwnFormatter = builtins.pathExists (self.outPath + "/formatter.nix");
           self = args.inputs.self;
         in
-        generated // lib.foldl' (acc: system: acc // defaultsFor system) { } (args.systems or [ ]);
+        generated
+        // {
+          checks =
+            (generated.checks or { })
+            // lib.mapAttrs (system: d: (generated.checks.${system} or { }) // d.checks) defaults;
+          devShells =
+            (generated.devShells or { })
+            // lib.mapAttrs (system: d: (generated.devShells.${system} or { }) // d.devShells) defaults;
+          formatter =
+            (generated.formatter or { })
+            // lib.mapAttrs (
+              system: d: if hasOwnFormatter then generated.formatter.${system} else d.formatter
+            ) defaults;
+          packages =
+            (generated.packages or { })
+            // lib.mapAttrs (system: d: (generated.packages.${system} or { }) // d.packages) defaults;
+        };
       own = blueprint {
         inherit inputs;
         systems = [ "x86_64-linux" ];

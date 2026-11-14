@@ -37,6 +37,29 @@ let
           found = lib.findFirst (entry: entry.argument == argument) null (docArguments name);
         in
         if found == null then "" else found.argumentType;
+      blockComment =
+        name:
+        let
+          index = declaredAt name;
+        in
+        if index == null then
+          null
+        else
+          let
+            justAbove = dropWhile (line: trimLeft line == "") preceding;
+            preceding = lib.reverseList (lib.take index sourceLines);
+          in
+          if justAbove == [ ] || !(lib.hasInfix "*/" (builtins.head justAbove)) then
+            null
+          else
+            let
+              beforeClosing = lib.drop 1 justAbove;
+              openingIndex = firstFalse (line: !(lib.hasInfix "/**" line)) beforeClosing;
+            in
+            if openingIndex == lib.length beforeClosing then
+              null
+            else
+              stripIndent (lib.reverseList (lib.take openingIndex beforeClosing));
       commentBefore =
         name:
         let
@@ -58,7 +81,7 @@ let
           argumentOf =
             entry:
             let
-              parsed = builtins.match "- `([^\`]+)`: (.+)" entry.bullet;
+              parsed = builtins.match "- `([^\`]+)`: (.*)" entry.bullet;
             in
             if parsed == null then
               [ ]
@@ -69,6 +92,22 @@ let
                   argumentType = lib.concatStringsSep " " ([ (builtins.elemAt parsed 1) ] ++ entry.continuation);
                 }
               ];
+          asDefinitionLists = lib.foldl' (
+            acc: line:
+            if acc == [ ] then
+              [ line ]
+            else
+              let
+                isTerm =
+                  line:
+                  line != "" && trimLeft line == line && !(lib.hasPrefix "- `" line) && !(lib.hasInfix ":" line);
+                previous = lib.last acc;
+              in
+              if isTerm previous && lib.hasPrefix ": " line then
+                lib.init acc ++ [ "- `${previous}`: " ]
+              else
+                acc ++ [ line ]
+          ) [ ] fromArguments;
           fromArguments = dropWhile (line: line != "# Arguments") (docLines name);
           grouped = lib.foldl' (
             acc: line:
@@ -90,35 +129,53 @@ let
               ++ [
                 {
                   inherit (previous) bullet;
-                  continuation = previous.continuation ++ [ (trimLeft line) ];
+                  continuation = previous.continuation ++ lib.optional (trimLeft line != "") (trimLeft line);
                 }
               ]
-          ) [ ] fromArguments;
+          ) [ ] asDefinitionLists;
           isBullet = line: lib.hasPrefix "- `" line;
+          signatureArgTypes =
+            name:
+            let
+              afterType = dropWhile (line: line != "# Type") (docLines name);
+              signature = lib.findFirst (line: lib.hasInfix "::" line) null (lib.drop 1 afterType);
+            in
+            if signature == null then
+              [ ]
+            else
+              lib.init (
+                lib.filter (part: part != "") (
+                  map lib.trim (lib.splitString "->" (lib.last (lib.splitString "::" signature)))
+                )
+              );
+          typedArguments = lib.concatMap argumentOf grouped;
         in
-        lib.concatMap argumentOf grouped;
+        if
+          lib.length (lib.filter (arg: arg.argumentType == "") typedArguments)
+          == lib.length (signatureArgTypes name)
+        then
+          lib.imap0 (
+            i: arg:
+            if arg.argumentType == "" && i < lib.length (signatureArgTypes name) then
+              arg // { argumentType = lib.elemAt (signatureArgTypes name) i; }
+            else
+              arg
+          ) typedArguments
+        else
+          typedArguments;
       docLines =
         name:
-        map (
-          line:
-          let
-            trimmed = trimLeft line;
-          in
-          if trimmed == "#" then
-            ""
-          else if lib.hasPrefix "# " trimmed then
-            lib.removePrefix "# " trimmed
-          else
-            ""
-        ) (commentBefore name);
+        let
+          block = blockComment name;
+        in
+        if block == null then [ ] else block;
       docSummary =
         name:
         lib.concatStringsSep " " (
-          takeWhile (line: line != "" && line != "# Arguments") (
-            lib.filter (line: line != "") (takeWhile (line: line != "# Arguments") (docLines name))
-          )
+          takeWhile (line: line != "" && !(lib.hasPrefix "# " line)) (docLines name)
         );
-      hasDocBlock = name: commentBefore name != [ ];
+      hasDocBlock = name: blockComment name != null;
+      hashCommented = name: commentBefore name != [ ];
       indexedLines = lib.imap0 (i: line: { inherit i line; }) sourceLines;
       sourceFiles =
         if builtins.pathExists source then
@@ -128,6 +185,26 @@ let
       sourceLines = lib.splitString "\n" (
         lib.concatMapStrings (file: builtins.readFile file + "\n") sourceFiles
       );
+      sourceLocation =
+        name:
+        let
+          index = declaredAt name;
+        in
+        if index == null then
+          null
+        else
+          let
+            counts = map (file: lib.length (lib.splitString "\n" (builtins.readFile file + "\n"))) sourceFiles;
+            file = lib.elemAt sourceFiles fileIndex;
+            fileIndex = firstFalse (i: !(index < lib.elemAt offsets (i + 1))) (
+              lib.genList (i: i) (lib.length sourceFiles)
+            );
+            offsets = lib.foldl' (acc: n: acc ++ [ (lib.last acc + n) ]) [ 0 ] counts;
+          in
+          {
+            file = lib.removePrefix (toString source + "/") (toString file);
+            line = index - lib.elemAt offsets fileIndex + 1;
+          };
     in
     {
       inherit
@@ -135,17 +212,21 @@ let
         docArguments
         docLines
         docSummary
+        hashCommented
         hasDocBlock
+        sourceLocation
         ;
     };
   dropWhile = predicate: list: lib.drop (firstFalse predicate list) list;
   everything = rec {
-    # Reports descriptions that are missing, too short to state a contract, repeated, or that name another component of the flake.
-    #
-    # # Arguments
-    # - `options`: evaluated option set whose descriptions are inspected
-    # - `components`: names of the components this flake is built from, whose mention is reported
-    # - `allowComponents`: component names that may be mentioned without being reported
+    /**
+      Reports descriptions that are missing, too short to state a contract, repeated, or that name another component of the flake.
+
+      # Arguments
+      - `options`: evaluated option set whose descriptions are inspected
+      - `components`: names of the components this flake is built from, whose mention is reported
+      - `allowComponents`: component names that may be mentioned without being reported
+    */
     descriptionsProblems =
       {
         components,
@@ -196,21 +277,25 @@ let
         entry:
         "${renderPath entry.path}: mentions ${lib.concatStringsSep ", " (unmentioned entry)}, which is another component of this flake and has no bearing on this option's contract"
       ) foreignComponents;
-    # Shell environment carrying the formatter's packages and its shell hook.
-    #
-    # # Arguments
-    # - `pkgs`: nixpkgs package set the shell is built with
-    # - `preCommit`: pre-commit check whose packages and hook the shell exposes
+    /**
+      Shell environment carrying the formatter's packages and its shell hook.
+
+      # Arguments
+      - `pkgs`: nixpkgs package set the shell is built with
+      - `preCommit`: pre-commit check whose packages and hook the shell exposes
+    */
     devShell =
       { pkgs, preCommit }:
       pkgs.mkShell {
         inherit (preCommit) shellHook;
         buildInputs = preCommit.enabledPackages;
       };
-    # Writes one generated README into the working tree, for the repository or for one named module.
-    #
-    # # Arguments
-    # - `pkgs`: nixpkgs package set the wrapper script runs with; the flake it documents is read from the working directory
+    /**
+      Writes one generated README into the working tree, for the repository or for one named module.
+
+      # Arguments
+      - `pkgs`: nixpkgs package set the wrapper script runs with; the flake it documents is read from the working directory
+    */
     docsApp =
       { pkgs }:
       (pkgs.writeShellScriptBin "docs" ''
@@ -239,7 +324,7 @@ let
           flake = builtins.getFlake ("path:" + builtins.getEnv "PWD");
           pkgs = base.inputs.nixpkgs.legacyPackages.''${builtins.currentSystem};
           description = builtins.getEnv "DOCS_DESCRIPTION";
-          args = base.lib.flakeArgs { inherit description flake pkgs; };
+          args = base.lib.internal.flakeArgs { inherit description flake pkgs; };
         in
         base.lib.internal.docsTree args
         EXPR
@@ -277,38 +362,26 @@ let
           exit 0
         fi
         case "$1" in
-          --module)
-            shift
-            module="$1"
-            ;;
           *)
-            echo "usage: docs [--check | --module NAME]" >&2
+            echo "usage: docs [--check]" >&2
             exit 2
             ;;
         esac
-        if [ -f "$tree/modules/nixos/$module/README.md" ]; then
-          target="modules/nixos/$module/README.md"
-        elif [ -f "$tree/modules/nixos/$module.README.md" ]; then
-          target="modules/nixos/$module.README.md"
-        else
-          echo "no module '$module' is documented by this flake" >&2
-          exit 1
-        fi
-        install -D -m 644 "$tree/$target" "$PWD/$target"
-        echo "wrote $target"
       '')
       // {
         meta.description = "Writes the generated documentation into the working tree, or checks that it is current and staged.";
       };
-    # Fails evaluation when the documentation of a flake is incomplete, so a repository can make its documentation a
-    # check instead of a convention.
-    #
-    # # Arguments
-    # - `flake`: the flake whose documentation is inspected
-    # - `pkgs`: nixpkgs package set for the system being documented
-    # - `root`: source tree the documentation describes, the store copy of the flake by default
-    # - `librarySource`: directory holding the library sources whose doc blocks are read, `<root>/lib` by default
-    # - `checks`: checks to document, none by default, because a check cannot enumerate the checks without forcing itself
+    /**
+      Fails evaluation when the documentation of a flake is incomplete, so a repository can make its documentation a
+      check instead of a convention.
+
+      # Arguments
+      - `flake`: the flake whose documentation is inspected
+      - `pkgs`: nixpkgs package set for the system being documented
+      - `root`: source tree the documentation describes, the store copy of the flake by default
+      - `librarySource`: directory holding the library sources whose doc blocks are read, `<root>/lib` by default
+      - `checks`: checks to document, none by default, because a check cannot enumerate the checks without forcing itself
+    */
     docsGate =
       {
         pkgs,
@@ -344,23 +417,24 @@ let
           meta.description = "Checks that the documentation of the flake is complete: every output states what it is and how to use it, and every public library function is documented.";
           name = "docgate-documentation";
         };
-    #
-    # # Arguments
-    # - `pkgs`: nixpkgs package set used to render option documentation
-    # - `root`: path to the repository root, used to locate module files
-    # - `system`: system string selecting the packages, apps and checks to document
-    # - `description`: sentence saying what this flake is for
-    # - `apps`: attrset of apps to document, empty when the flake exports none
-    # - `formatter`: the derivation exposed as the flake formatter for this system
-    # - `checks`: attrset of checks to document, empty when the flake exports none
-    # - `configurations`: attrset of NixOS configurations to document
-    # - `library`: attrset of functions to document in the index
-    # - `internalLibrary`: attrset of functions documented only in lib/README.md
-    # - `modules`: attrset of NixOS modules to document
-    # - `packages`: attrset of packages to document
-    # - `templates`: attrset of templates to document
-    # - `url`: flake reference the templates are published under, empty when the flake states none
-    # - `librarySource`: directory holding the library sources whose doc blocks are read
+    /**
+      # Arguments
+      - `pkgs`: nixpkgs package set used to render option documentation
+      - `root`: path to the repository root, used to locate module files
+      - `system`: system string selecting the packages, apps and checks to document
+      - `description`: sentence saying what this flake is for
+      - `apps`: attrset of apps to document, empty when the flake exports none
+      - `formatter`: the derivation exposed as the flake formatter for this system
+      - `checks`: attrset of checks to document, empty when the flake exports none
+      - `configurations`: attrset of NixOS configurations to document
+      - `library`: attrset of functions to document in the index
+      - `internalLibrary`: attrset of functions documented only in lib/README.md
+      - `modules`: attrset of NixOS modules to document
+      - `packages`: attrset of packages to document
+      - `templates`: attrset of templates to document
+      - `url`: flake reference the templates are published under, empty when the flake states none
+      - `librarySource`: directory holding the library sources whose doc blocks are read
+    */
     docsTree =
       {
         pkgs,
@@ -406,16 +480,18 @@ let
           install -m 644 ${documentation'.root}/README.md $out/README.md
           ${lib.concatMapStrings (
             entry: "install -D -m 644 ${entry.doc}/README.md $out/${entry.relative}\n"
-          ) (documentation'.modules ++ documentation'.files)}
+          ) documentation'.files}
         '';
-        meta.description = "Documentation tree: the repository README plus one README per module.";
+        meta.description = "Documentation tree: the repository README plus one README per output kind.";
         name = "docs-tree";
       };
-    # Documents one app: how to run it and what its meta.description says.
-    #
-    # # Arguments
-    # - `name`: attribute name of the app
-    # - `app`: the app record being documented
+    /**
+      Documents one app: how to run it and what its meta.description says.
+
+      # Arguments
+      - `name`: attribute name of the app
+      - `app`: the app record being documented
+    */
     documentApp =
       { app, name }:
       section {
@@ -425,12 +501,14 @@ let
         type = "app";
         usage = "nix run .#${name}";
       };
-    # Documents one check: how to build it and the assertions it makes.
-    #
-    # # Arguments
-    # - `system`: system string selecting the check set
-    # - `name`: attribute name of the check
-    # - `check`: the check derivation being documented
+    /**
+      Documents one check: how to build it and the assertions it makes.
+
+      # Arguments
+      - `system`: system string selecting the check set
+      - `name`: attribute name of the check
+      - `check`: the check derivation being documented
+    */
     documentCheck =
       {
         check,
@@ -444,11 +522,13 @@ let
         type = "derivation";
         usage = "nix build .#checks.${system}.${name}";
       };
-    # Documents one NixOS configuration: how to build it, its host name and its system.
-    #
-    # # Arguments
-    # - `name`: attribute name of the configuration
-    # - `configuration`: the evaluated configuration being documented
+    /**
+      Documents one NixOS configuration: how to build it, its host name and its system.
+
+      # Arguments
+      - `name`: attribute name of the configuration
+      - `configuration`: the evaluated configuration being documented
+    */
     documentConfiguration =
       { configuration, name }:
       section {
@@ -460,14 +540,16 @@ let
         type = "NixOS configuration";
         usage = "nix build .#nixosConfigurations.${name}.config.system.build.toplevel";
       };
-    # Documents one function: how to call it, what it is for, and what each argument is.
-    #
-    # # Arguments
-    # - `fn`: the function being documented
-    # - `name`: attribute name of the function, used to find its doc block
-    # - `namespace`: attribute path the function is reachable from, `lib` by default
-    # - `source`: directory holding the library sources whose doc blocks are read, the flake library by default
-    # - `internal`: whether the function is outside the public surface, whose documentation may be omitted
+    /**
+      Documents one function: how to call it, what it is for, and what each argument is.
+
+      # Arguments
+      - `fn`: the function being documented
+      - `name`: attribute name of the function, used to find its doc block
+      - `namespace`: attribute path the function is reachable from, `lib` by default
+      - `source`: directory holding the library sources whose doc blocks are read, the flake library by default
+      - `internal`: whether the function is outside the public surface, whose documentation may be omitted
+    */
     documentFunction =
       {
         fn,
@@ -479,6 +561,7 @@ let
       let
         argumentNames = if probed.success then builtins.attrNames probed.value else [ ];
         blocks = docBlocksFor source;
+        location = blocks.sourceLocation name;
         probed = builtins.tryEval (builtins.functionArgs fn);
       in
       section {
@@ -489,19 +572,30 @@ let
         }) argumentNames;
         description = blocks.docSummary name;
         documented = blocks.hasDocBlock name;
+        hashCommented = blocks.hashCommented name;
         language = "nix";
+        source =
+          if location == null then
+            null
+          else
+            {
+              inherit (location) line;
+              file = "${baseNameOf source}/${location.file}";
+            };
         title = name;
         type = "function";
         usage = "${namespace}.${name} ${functionSignature fn}";
       };
-    # Documents one package: how to run it when it has a mainProgram, how to build it otherwise, what its
-    # meta.description says, and which checks it is tested by.
-    #
-    # # Arguments
-    # - `name`: attribute name of the package
-    # - `package`: the derivation being documented
-    # - `checks`: names of the checks this document links to, so passthru.tests entries become links
-    # - `formatter`: the flake's formatter for this system, so it is documented as `nix fmt` instead of a build
+    /**
+      Documents one package: how to run it when it has a mainProgram, how to build it otherwise, what its
+      meta.description says, and which checks it is tested by.
+
+      # Arguments
+      - `name`: attribute name of the package
+      - `package`: the derivation being documented
+      - `checks`: names of the checks this document links to, so passthru.tests entries become links
+      - `formatter`: the flake's formatter for this system, so it is documented as `nix fmt` instead of a build
+    */
     documentPackage =
       {
         name,
@@ -526,18 +620,20 @@ let
           else
             "nix build .#${name}";
       };
-    # Documents one library function: its call shape, the types from the doc block above it, and the doc block's summary.
-    #
-    # # Arguments
-    # - `name`: attribute name of the function, used to find its doc block
-    # - `fn`: the function being documented
-    # - `namespace`: attribute path the function is reachable from, so the usage snippet can be called as written
-    # Documents one flake template: how to instantiate it and what it says it is for.
-    #
-    # # Arguments
-    # - `name`: attribute name of the template
-    # - `template`: the template record, carrying the description its flake states
-    # - `url`: flake reference the templates are published under, `.` when the flake states none
+    /**
+      Documents one library function: its call shape, the types from the doc block above it, and the doc block's summary.
+
+      # Arguments
+      - `name`: attribute name of the function, used to find its doc block
+      - `fn`: the function being documented
+      - `namespace`: attribute path the function is reachable from, so the usage snippet can be called as written
+      Documents one flake template: how to instantiate it and what it says it is for.
+
+      # Arguments
+      - `name`: attribute name of the template
+      - `template`: the template record, carrying the description its flake states
+      - `url`: flake reference the templates are published under, `.` when the flake states none
+    */
     documentTemplate =
       {
         name,
@@ -551,26 +647,28 @@ let
         type = "template";
         usage = "nix flake init -t ${if url == "" then "." else url}#${name}";
       };
-    # Builds the documentation of a flake: one document per group of outputs, the modules, and the root index that
-    # links them.
-    #
-    # # Arguments
-    # - `pkgs`: nixpkgs package set used to build the documents
-    # - `description`: statement of what the flake is for, shown at the top of every document
-    # - `name`: name of the flake, used in the document headings
-    # - `root`: source tree the documents describe, read for module options
-    # - `system`: system the documented outputs belong to
-    # - `apps`: attrset of apps to document
-    # - `checks`: attrset of checks to document
-    # - `configurations`: attrset of NixOS configurations to document
-    # - `formatter`: derivation exposed as the flake formatter, documented as `nix fmt`
-    # - `internalLibrary`: attrset of functions documented as part of the internal surface
-    # - `library`: attrset of functions documented as part of the public surface
-    # - `modules`: attrset of NixOS modules to document
-    # - `packages`: attrset of packages to document
-    # - `templates`: attrset of templates to document
-    # - `url`: flake reference the templates are published under, empty when the flake states none
-    # - `librarySource`: directory holding the library sources whose doc blocks are read
+    /**
+      Builds the documentation of a flake: one document per group of outputs, the modules, and the root index that
+      links them.
+
+      # Arguments
+      - `pkgs`: nixpkgs package set used to build the documents
+      - `description`: statement of what the flake is for, shown at the top of every document
+      - `name`: name of the flake, used in the document headings
+      - `root`: source tree the documents describe, read for module options
+      - `system`: system the documented outputs belong to
+      - `apps`: attrset of apps to document
+      - `checks`: attrset of checks to document
+      - `configurations`: attrset of NixOS configurations to document
+      - `formatter`: derivation exposed as the flake formatter, documented as `nix fmt`
+      - `internalLibrary`: attrset of functions documented as part of the internal surface
+      - `library`: attrset of functions documented as part of the public surface
+      - `modules`: attrset of NixOS modules to document
+      - `packages`: attrset of packages to document
+      - `templates`: attrset of templates to document
+      - `url`: flake reference the templates are published under, empty when the flake states none
+      - `librarySource`: directory holding the library sources whose doc blocks are read
+    */
     documentation =
       {
         pkgs,
@@ -622,6 +720,12 @@ let
                 title = "Systems";
               }
               {
+                entries = map moduleSection moduleNames;
+                kind = "modules";
+                relative = "modules/README.md";
+                title = "Modules";
+              }
+              {
                 entries = lib.mapAttrsToList (
                   n: template:
                   documentTemplate {
@@ -629,6 +733,7 @@ let
                     name = n;
                   }
                 ) templates;
+                kind = "templates";
                 relative = "templates/README.md";
                 title = "Templates";
               }
@@ -642,6 +747,7 @@ let
                     package = p;
                   }
                 ) documentedPackages;
+                kind = "packages";
                 relative = "packages/README.md";
                 title = "Packages";
               }
@@ -653,6 +759,7 @@ let
                     name = n;
                   }
                 ) apps;
+                kind = "apps";
                 relative = "apps/README.md";
                 title = "Apps";
               }
@@ -672,6 +779,7 @@ let
                     name = n;
                   }
                 ) documentedChecks;
+                kind = "checks";
                 relative = "checks/README.md";
                 title = "Checks";
               }
@@ -683,7 +791,20 @@ let
               group
               // {
                 entries =
-                  if group.unsorted or false then group.entries else lib.sort (a: b: a.title < b.title) group.entries;
+                  let
+                    injected =
+                      if group ? kind then
+                        map (
+                          entry:
+                          entry
+                          // {
+                            source = if entry.source != null then entry.source else sourceOf group.kind entry.title;
+                          }
+                        ) group.entries
+                      else
+                        group.entries;
+                  in
+                  if group.unsorted or false then injected else lib.sort (a: b: a.title < b.title) injected;
               }
             ) declared
           );
@@ -752,41 +873,8 @@ let
             ]
           else
             libraryPublicSections ++ libraryInternalSections;
-        moduleDoc =
-          moduleName:
-          let
-            info = contributed modules moduleName;
-          in
-          {
-            doc = writeDocumentation {
-              inherit pkgs;
-              description = if info.description != "" then info.description else summary info;
-              name = moduleName;
-              sections = [
-                (section {
-                  language = "nix";
-                  title = "Usage";
-                  type = "NixOS module";
-                  usage = "imports = [ inputs.<flake>.nixosModules.${moduleName} ];";
-                })
-                (section {
-                  bodyFile = optionsDoc pkgs info.options;
-                  sections = [
-                    (section {
-                      description = "Declare values under the namespaces above; the interface asserts their referential integrity.";
-                      language = "nix";
-                      title = "example";
-                      usage = "{ }";
-                    })
-                  ];
-                  title = "Options";
-                  usage = "";
-                })
-              ];
-            };
-            relative = moduleReadmePath root moduleName;
-          };
-        moduleIndex =
+        moduleNames = lib.sort (a: b: a < b) (builtins.attrNames modules);
+        moduleSection =
           moduleName:
           let
             info = contributed modules moduleName;
@@ -794,29 +882,61 @@ let
           section {
             description = if info.description != "" then info.description else summary info;
             language = "nix";
-            title = "[${moduleName}](${moduleReadmePath root moduleName})";
+            sections = [
+              (section {
+                bodyFile = optionsDoc pkgs info.options;
+                sections = [
+                  (section {
+                    description = "Declare values under the namespaces above; the interface asserts their referential integrity.";
+                    language = "nix";
+                    title = "example";
+                    type = "NixOS configuration";
+                    usage = "{ }";
+                  })
+                ];
+                title = "Options";
+                usage = "";
+              })
+            ];
+            source = sourceOf "modules" moduleName;
+            title = moduleName;
             type = "NixOS module";
             usage = "imports = [ inputs.<flake>.nixosModules.${moduleName} ];";
           };
-        moduleNames = lib.sort (a: b: a < b) (builtins.attrNames modules);
         sections =
           groupSummaryOf "Apps"
           ++ groupSummaryOf "Systems"
-          ++ lib.optional (moduleNames != [ ]) (mkSection {
-            sections = map moduleIndex moduleNames;
-            title = "Modules";
-          })
+          ++ groupSummaryOf "Modules"
           ++ groupSummaryOf "Templates"
           ++ groupSummaryOf "Packages"
           ++ groupSummaryOf "Library"
           ++ groupSummaryOf "Checks";
         slug = text: lib.replaceStrings [ " " ] [ "-" ] (lib.toLower text);
+        sourceOf =
+          kind: name:
+          let
+            file =
+              {
+                apps = "apps/${name}.nix";
+                checks = "checks/${name}.nix";
+                modules = "modules/nixos/${name}.nix";
+                packages = "packages/${name}.nix";
+                templates = "templates/${name}/flake.nix";
+              }
+              .${kind};
+          in
+          if builtins.pathExists (root + "/" + file) then
+            {
+              inherit file;
+              line = null;
+            }
+          else
+            null;
         summary = info: lib.concatStringsSep ", " (map (group: "${group}.*") info.names);
       in
       {
         inherit sections;
         inherit files;
-        modules = map moduleDoc moduleNames;
         problems = documentationProblems {
           inherit description;
           sections = sections ++ lib.concatMap (group: group.entries) groupDocuments;
@@ -826,11 +946,13 @@ let
           inherit sections;
         };
       };
-    # Reports every way a rendered document falls short of being usable: purpose unstated, usage missing, arguments untyped.
-    #
-    # # Arguments
-    # - `description`: sentence stating what the flake is for
-    # - `sections`: the rendered sections that are inspected
+    /**
+      Reports every way a rendered document falls short of being usable: purpose unstated, usage missing, arguments untyped.
+
+      # Arguments
+      - `description`: sentence stating what the flake is for
+      - `sections`: the rendered sections that are inspected
+    */
     documentationProblems =
       {
         description,
@@ -897,18 +1019,24 @@ let
               entry:
               entry.section.type == "function" && !entry.section.documented && !(entry.section.internal or false)
             ) all
-          );
-    # Derives the arguments that document a flake, from the flake itself, so a repository states nothing about its own
-    # documentation.
-    #
-    # # Arguments
-    # - `flake`: the flake whose outputs are documented
-    # - `pkgs`: nixpkgs package set for the system being documented
-    # - `root`: source tree the documentation describes, the store copy of the flake by default
-    # - `checks`: checks to document, every check of the flake by default; pass an empty set from a check, which
-    #   cannot enumerate the checks without forcing itself
-    # - `description`: statement of what the flake is for, the multiline description in flake.nix by default
-    # - `librarySource`: directory holding the library sources whose doc blocks are read, `<flake>/lib` by default
+          )
+      ++ map (
+        entry:
+        "${entry.path}: is documented with a `#` line-comment block directly above it, which is not read; the only doc-comment format is the RFC-145 `/** */` block"
+      ) (lib.filter (entry: entry.section.type == "function" && entry.section.hashCommented) all);
+    /**
+      Derives the arguments that document a flake, from the flake itself, so a repository states nothing about its own
+      documentation.
+
+      # Arguments
+      - `flake`: the flake whose outputs are documented
+      - `pkgs`: nixpkgs package set for the system being documented
+      - `root`: source tree the documentation describes, the store copy of the flake by default
+      - `checks`: checks to document, every check of the flake by default; pass an empty set from a check, which
+        cannot enumerate the checks without forcing itself
+      - `description`: statement of what the flake is for, the multiline description in flake.nix by default
+      - `librarySource`: directory holding the library sources whose doc blocks are read, `<flake>/lib` by default
+    */
     flakeArgs =
       {
         pkgs,
@@ -938,10 +1066,12 @@ let
         templates = flake.templates or { };
         url = flake.url or "";
       };
-    # Reads the description a flake states about itself, which is the only statement of what the flake is for.
-    #
-    # # Arguments
-    # - `root`: source tree containing flake.nix
+    /**
+      Reads the description a flake states about itself, which is the only statement of what the flake is for.
+
+      # Arguments
+      - `root`: source tree containing flake.nix
+    */
     flakeDescription =
       { root }:
       let
@@ -993,11 +1123,13 @@ let
         multiline
       else
         "";
-    # Reports assertion messages that do not name a declared option, or that omit the expected value and the fix.
-    #
-    # # Arguments
-    # - `assertions`: list of { assertion, message } records whose messages are inspected
-    # - `options`: evaluated option set the message paths are resolved against
+    /**
+      Reports assertion messages that do not name a declared option, or that omit the expected value and the fix.
+
+      # Arguments
+      - `assertions`: list of { assertion, message } records whose messages are inspected
+      - `options`: evaluated option set the message paths are resolved against
+    */
     messageProblems =
       {
         assertions,
@@ -1023,14 +1155,16 @@ let
           !(lib.hasInfix "how to fix:" assertion.message)
         ) "message has no 'how to fix:' line: ${path}"
       ) assertions;
-    # Builds an assertion record whose message states the violation, what was expected and how to fix it.
-    #
-    # # Arguments
-    # - `at`: list of attribute names naming the option the assertion is about
-    # - `condition`: the property being asserted, true when it holds
-    # - `violation`: sentence saying what is wrong when the condition is false
-    # - `expected`: sentence saying what the configuration should look like instead
-    # - `fix`: sentence saying how to make it look that way
+    /**
+      Builds an assertion record whose message states the violation, what was expected and how to fix it.
+
+      # Arguments
+      - `at`: list of attribute names naming the option the assertion is about
+      - `condition`: the property being asserted, true when it holds
+      - `violation`: sentence saying what is wrong when the condition is false
+      - `expected`: sentence saying what the configuration should look like instead
+      - `fix`: sentence saying how to make it look that way
+    */
     mkAssertion =
       {
         at,
@@ -1047,12 +1181,14 @@ let
             how to fix: ${fix}
         '';
       };
-    # Groups child sections under one title, for a part of the document that is itself not a usable thing.
-    #
-    # # Arguments
-    # - `title`: heading text of the group
-    # - `sections`: child sections, rendered one heading level deeper, empty when the group only holds prose
-    # - `body`: markdown emitted under the title instead of child headings, null when there is none
+    /**
+      Groups child sections under one title, for a part of the document that is itself not a usable thing.
+
+      # Arguments
+      - `title`: heading text of the group
+      - `sections`: child sections, rendered one heading level deeper, empty when the group only holds prose
+      - `body`: markdown emitted under the title instead of child headings, null when there is none
+    */
     mkSection =
       {
         title,
@@ -1067,16 +1203,19 @@ let
         description = "";
         documented = true;
         language = "";
+        source = null;
         tests = [ ];
         type = "";
         usage = "";
       };
-    # Runs treefmt through this flake's formatter, plus deadnix, statix and pedantix.
-    #
-    # # Arguments
-    # - `pkgs`: nixpkgs package set the hooks are taken from
-    # - `src`: the tree the hooks are run against
-    # - `extraHooks`: additional git-hooks definitions merged into the hook set
+    /**
+      Runs treefmt through this flake's formatter, plus deadnix, statix and pedantix.
+
+      # Arguments
+      - `pkgs`: nixpkgs package set the hooks are taken from
+      - `src`: the tree the hooks are run against
+      - `extraHooks`: additional git-hooks definitions merged into the hook set
+    */
     preCommit =
       {
         pkgs,
@@ -1119,25 +1258,27 @@ let
           description = "Runs treefmt through this flake's formatter, plus deadnix, statix and pedantix.";
         };
       };
-    # Fails when a committed README differs from the generated documentation, or when README.md and checks/README.md
-    # disagree about a check.
-    #
-    # # Arguments
-    # - `pkgs`: nixpkgs package set used to render and compare the documents
-    # - `root`: path to the repository root holding the committed READMEs
-    # - `system`: system string selecting the documented outputs
-    # - `description`: sentence saying what this flake is for
-    # - `apps`: attrset of apps to document, empty when the flake exports none
-    # - `formatter`: the derivation exposed as the flake formatter for this system
-    # - `checks`: attrset of checks to document, empty when the flake exports none
-    # - `configurations`: attrset of NixOS configurations to document
-    # - `library`: attrset of functions to document in the index
-    # - `internalLibrary`: attrset of functions documented only in lib/README.md
-    # - `modules`: attrset of NixOS modules to document
-    # - `packages`: attrset of packages to document
-    # - `templates`: attrset of templates to document
-    # - `url`: flake reference the templates are published under, empty when the flake states none
-    # - `librarySource`: directory holding the library sources whose doc blocks are read
+    /**
+      Fails when a committed README differs from the generated documentation, or when README.md and checks/README.md
+      disagree about a check.
+
+      # Arguments
+      - `pkgs`: nixpkgs package set used to render and compare the documents
+      - `root`: path to the repository root holding the committed READMEs
+      - `system`: system string selecting the documented outputs
+      - `description`: sentence saying what this flake is for
+      - `apps`: attrset of apps to document, empty when the flake exports none
+      - `formatter`: the derivation exposed as the flake formatter for this system
+      - `checks`: attrset of checks to document, empty when the flake exports none
+      - `configurations`: attrset of NixOS configurations to document
+      - `library`: attrset of functions to document in the index
+      - `internalLibrary`: attrset of functions documented only in lib/README.md
+      - `modules`: attrset of NixOS modules to document
+      - `packages`: attrset of packages to document
+      - `templates`: attrset of templates to document
+      - `url`: flake reference the templates are published under, empty when the flake states none
+      - `librarySource`: directory holding the library sources whose doc blocks are read
+    */
     readmeGate =
       {
         pkgs,
@@ -1185,24 +1326,14 @@ let
           install -m 644 ${documentation'.root}/README.md "$out/README.md"
           ${lib.concatMapStrings (
             entry: "install -D -m 644 ${entry.doc}/README.md \"$out/${entry.relative}\"\n"
-          ) (documentation'.modules ++ documentation'.files)}
+          ) documentation'.files}
           status=0
           strip_checks() {
             awk 'BEGIN { skip = 0 } /^## Checks$/ { skip = 1; next } skip == 1 && /^## / { skip = 0 } skip == 0 { print }' "$1"
           }
           while IFS= read -r -d "" found; do
             file="''${found#./}"
-            case "$file" in
-              modules/nixos/*/README.md)
-                hint="nix run .#docs -- --module $(echo "$file" | sed -e 's|modules/nixos/||; s|/README.md$||')"
-                ;;
-              modules/nixos/*.README.md)
-                hint="nix run .#docs -- --module $(echo "$file" | sed -e 's|modules/nixos/||; s|\.README\.md$||')"
-                ;;
-              *)
-                hint="nix run .#docs"
-                ;;
-            esac
+            hint="nix run .#docs"
             committed="${root}/$file"
             if [ "$file" = "README.md" ] && [ -f "$committed" ]; then
               strip_checks "$committed" > "$TMPDIR/committed.md"
@@ -1261,18 +1392,20 @@ let
         meta.description = "Fails when a committed README differs from the generated documentation, or when README.md and checks/README.md disagree about a check.";
         name = "readme-gate";
       };
-    # Renders a list of sections into a README derivation.
-    #
-    # # Arguments
-    # - `pkgs`: nixpkgs package set the derivation is built with
-    # - `name`: document title
-    # - `description`: sentence under the title saying what the documented thing is for
-    # - `sections`: sections to render, each with its own heading
-    # Renders one section of a document as the shell commands that append its markdown, one heading level per depth.
-    #
-    # # Arguments
-    # - `depth`: heading level of the section, 2 for a top-level section of a document
-    # - `s`: the section to render
+    /**
+      Renders a list of sections into a README derivation.
+
+      # Arguments
+      - `pkgs`: nixpkgs package set the derivation is built with
+      - `name`: document title
+      - `description`: sentence under the title saying what the documented thing is for
+      - `sections`: sections to render, each with its own heading
+      Renders one section of a document as the shell commands that append its markdown, one heading level per depth.
+
+      # Arguments
+      - `depth`: heading level of the section, 2 for a top-level section of a document
+      - `s`: the section to render
+    */
     renderSection =
       { depth, s }:
       let
@@ -1305,6 +1438,11 @@ let
       ++ lib.optionals (s.description != "") [
         "printf '%s\n\n' ${esc s.description} >> $out/README.md"
       ]
+      ++ lib.optionals (s.source != null) [
+        "printf '*Source:* [%s](%s)\n\n' ${
+          esc (s.source.file + lib.optionalString (s.source.line != null) ":${toString s.source.line}")
+        } ${esc s.source.file} >> $out/README.md"
+      ]
       ++ lib.optionals (s.body != null) [
         "printf '%s\n\n' ${esc s.body} >> $out/README.md"
       ]
@@ -1319,20 +1457,23 @@ let
           depth = depth + 1;
         }
       ) s.sections;
-    # One documented thing: what it is, how to call or import it, what its arguments are and any child sections.
-    #
-    # # Arguments
-    # - `title`: heading text naming the thing
-    # - `usage`: snippet that uses the thing, shown in a fenced block
-    # - `description`: sentence saying what the thing is for, empty when the title says it
-    # - `language`: code fence language of the usage snippet, for example nix or sh
-    # - `type`: what the thing is, for example derivation, app or NixOS module
-    # - `arguments`: list of { argument, argumentType } describing the call shape
-    # - `documented`: whether authored prose exists for the thing, false when it is undocumented
-    # - `body`: markdown emitted under the title, null when there is none
-    # - `bodyFile`: path to a rendered markdown fragment appended after the description
-    # - `sections`: child sections, rendered one heading level deeper
-    # - `tests`: list of { test, documented } naming the checks the thing is tested by
+    /**
+      One documented thing: what it is, how to call or import it, what its arguments are and any child sections.
+
+      # Arguments
+      - `title`: heading text naming the thing
+      - `usage`: snippet that uses the thing, shown in a fenced block
+      - `description`: sentence saying what the thing is for, empty when the title says it
+      - `language`: code fence language of the usage snippet, for example nix or sh
+      - `type`: what the thing is, for example derivation, app or NixOS module
+      - `source`: { file, line } naming where the thing is defined in this repository, null when the location is unknown
+      - `arguments`: list of { argument, argumentType } describing the call shape
+      - `documented`: whether authored prose exists for the thing, false when it is undocumented
+      - `body`: markdown emitted under the title, null when there is none
+      - `bodyFile`: path to a rendered markdown fragment appended after the description
+      - `sections`: child sections, rendered one heading level deeper
+      - `tests`: list of { test, documented } naming the checks the thing is tested by
+    */
     section =
       {
         title,
@@ -1342,9 +1483,11 @@ let
         bodyFile ? null,
         description ? "",
         documented ? true,
+        hashCommented ? false,
         internal ? false,
         language ? "",
         sections ? [ ],
+        source ? null,
         tests ? [ ],
         type ? "",
       }:
@@ -1354,6 +1497,7 @@ let
           usage
           description
           documented
+          hashCommented
           internal
           language
           arguments
@@ -1361,22 +1505,27 @@ let
           body
           bodyFile
           sections
+          source
           tests
           ;
       };
-    # Renders the test links of a section: a markdown link when the check is documented, plain text when it is not.
-    #
-    # # Arguments
-    # - `tests`: list of { test, documented } records naming the checks a package is tested by
+    /**
+      Renders the test links of a section: a markdown link when the check is documented, plain text when it is not.
+
+      # Arguments
+      - `tests`: list of { test, documented } records naming the checks a package is tested by
+    */
     testsLine = renderTestLinks;
-    # Writes one document: a heading, the statement of purpose, and the sections rendered in order.
-    #
-    # # Arguments
-    # - `pkgs`: nixpkgs package set the document derivation is built with
-    # - `name`: title of the document, the first line of the description when it is empty
-    # - `description`: statement of what the flake is for, printed under the title; when name is empty its first
-    #   line titles the document and the rest of it is printed under that title
-    # - `sections`: sections to render, in order
+    /**
+      Writes one document: a heading, the statement of purpose, and the sections rendered in order.
+
+      # Arguments
+      - `pkgs`: nixpkgs package set the document derivation is built with
+      - `name`: title of the document, the first line of the description when it is empty
+      - `description`: statement of what the flake is for, printed under the title; when name is empty its first
+        line titles the document and the rest of it is printed under that title
+      - `sections`: sections to render, in order
+    */
     writeDocumentation =
       {
         pkgs,
@@ -1468,12 +1617,6 @@ let
     };
   };
   lib = inputs.nixpkgs.lib;
-  moduleReadmePath =
-    root: moduleName:
-    if builtins.pathExists (root + "/modules/nixos/${moduleName}") then
-      "modules/nixos/${moduleName}/README.md"
-    else
-      "modules/nixos/${moduleName}.README.md";
   optionsDoc =
     pkgs: options:
     (pkgs.nixosOptionsDoc {
@@ -1531,21 +1674,9 @@ let
       )
     );
 in
-# The surface a consuming repository calls: the documentation arguments, the readme gate, the pre-commit hook set and
-# the development shell. Everything else is internal.
-(lib.getAttrs [
-  "devShell"
-  "docsGate"
-  "flakeArgs"
-  "preCommit"
-  "readmeGate"
-] everything)
-// {
-  internal = builtins.removeAttrs everything [
-    "devShell"
-    "docsGate"
-    "flakeArgs"
-    "preCommit"
-    "readmeGate"
-  ];
+# The whole library is internal: consumers call the base flake directly, and the callable mixin supplies the
+# documentation arguments, the gates, the pre-commit hook set and the development shell, so nothing needs to be
+# public on the library itself.
+{
+  internal = everything;
 }

@@ -9,7 +9,6 @@
       inputs.nixpkgs.follows = "nixpkgs";
       url = "github:cachix/git-hooks.nix";
     };
-    jail-nix.url = "sourcehut:~alexdavid/jail.nix";
     nixpkgs.url = "github:synackdoche/nixpkgs/nixos-26.05";
     pedantix = {
       inputs = {

@@ -9,10 +9,13 @@
       inputs.nixpkgs.follows = "nixpkgs";
       url = "github:cachix/git-hooks.nix";
     };
+    jail-nix.url = "sourcehut:~alexdavid/jail.nix";
     nixpkgs.url = "github:synackdoche/nixpkgs/nixos-26.05";
     pedantix = {
-      inputs.nixpkgs.follows = "nixpkgs";
-      inputs.treefmt-nix.follows = "treefmt-nix";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+        treefmt-nix.follows = "treefmt-nix";
+      };
       url = "github:swarsel/pedantix";
     };
     treefmt-nix = {
@@ -28,5 +31,6 @@
     }
     // {
       title = "SYNACKDOCHE base flake — shared formatter, pre-commit, docgate checks and flake scaffolding";
+      url = "github:synackdoche/flake";
     };
 }

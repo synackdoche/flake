@@ -11,7 +11,31 @@ let
     programs = {
       deadnix.enable = true;
       flake-edit.enable = true;
-      pedantix.enable = true;
+      pedantix = {
+        enable = true;
+        settings = {
+          args = {
+            first = [
+              "self"
+              "lib"
+              "config"
+              "pkgs"
+            ];
+            last = [
+              "<defaulted>"
+              "..."
+            ];
+          };
+          attrs = {
+            blank-lines = 0;
+            flatten = true;
+            merge = true;
+            name-style = "identifier";
+            sort = true;
+          };
+          lets.sort = true;
+        };
+      };
       statix.enable = true;
     };
     projectRootFile = "flake.nix";

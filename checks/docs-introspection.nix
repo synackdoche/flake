@@ -13,7 +13,15 @@ let
     };
     name = "probe";
   };
-  args = import ../docs-args.nix { inherit pkgs inputs; };
+  args = inputs.self.lib.flakeArgs {
+    inherit pkgs;
+    checks = { };
+    flake = inputs.self;
+    root = ../.;
+  };
+  argsWithPublicLibrary = args // {
+    library.probeFn = { value }: value;
+  };
   assertionList = [
     {
       assertion = documentation.problems == [ ];
@@ -22,6 +30,12 @@ let
     {
       assertion = !failingAssertion.success;
       message = "an assertion that does not hold fails evaluation instead of reporting problems";
+    }
+    {
+      assertion =
+        lib.any (lib.hasInfix "too short to say what this flake is for")
+          (inputs.self.lib.internal.documentation (args // { description = "too short"; })).problems;
+      message = "a flake description too short to state what the flake is for is reported";
     }
     {
       assertion = lib.any (lib.hasInfix "the flake description is empty") broken.problems;
@@ -35,7 +49,6 @@ let
       assertion = lib.any (lib.hasInfix "usage line carries no language label") (
         inputs.self.lib.internal.documentationProblems {
           description = "A fixture description long enough to satisfy the purpose rule.";
-          name = "fixture";
           sections = [
             (inputs.self.lib.internal.section {
               title = "unlabelled";
@@ -51,7 +64,6 @@ let
       assertion = lib.any (lib.hasInfix "names no type, so what the thing is cannot be stated") (
         inputs.self.lib.internal.documentationProblems {
           description = "A fixture description long enough to satisfy the purpose rule.";
-          name = "fixture";
           sections = [
             (inputs.self.lib.internal.section {
               language = "sh";
@@ -91,8 +103,20 @@ let
       message = "a library with public and internal functions states which is which, in one document, under Public and Internal headings";
     }
     {
-      assertion = builtins.attrNames inputs.self.lib == [ "internal" ];
-      message = "every library function is grouped under lib.internal, so the README has no library section at all";
+      assertion =
+        builtins.attrNames inputs.self.lib == [
+          "devShell"
+          "docsGate"
+          "flakeArgs"
+          "internal"
+          "preCommit"
+          "readmeGate"
+        ];
+      message = "the public library is exactly the surface a consuming repository calls: docsGate, flakeArgs, readmeGate, preCommit and devShell, with everything else under lib.internal";
+    }
+    {
+      assertion = builtins.attrNames inputs.self.lib.internal != [ ];
+      message = "the functions that are not part of the consuming surface are grouped under lib.internal";
     }
     {
       assertion =
@@ -139,6 +163,138 @@ let
       assertion = functionPackage.usage == "lib.internal.mkSection { body ? …, sections ? …, title }";
       message = "a function is documented under the namespace it is actually reachable from, with its argument shape";
     }
+    {
+      assertion =
+        indexOf "Library" (inputs.self.lib.internal.documentation (args // { library = { }; })).sections
+        == null;
+      message = "a library that is entirely internal is documented in lib/README.md and adds no Library section to the index";
+    }
+    {
+      assertion =
+        let
+          section = indexOf "Library" (inputs.self.lib.internal.documentation argsWithPublicLibrary).sections;
+        in
+        section != null
+        && lib.hasInfix "probeFn" section.body
+        && !(lib.hasInfix "descriptionsProblems" section.body);
+      message = "a library with public and internal functions lists the public ones in the index and none of the internal ones";
+    }
+    {
+      assertion = args.checks == { } && args.internalLibrary == inputs.self.lib.internal;
+      message = "the documentation arguments are derived from the flake: its internal library, and the checks the caller chose to document";
+    }
+    {
+      assertion =
+        args.modules == inputs.self.nixosModules
+        && args.packages == inputs.self.packages.${pkgs.stdenv.hostPlatform.system}
+        && args.formatter == inputs.self.formatter.${pkgs.stdenv.hostPlatform.system}
+        &&
+          builtins.attrNames args.library == [
+            "devShell"
+            "docsGate"
+            "flakeArgs"
+            "preCommit"
+            "readmeGate"
+          ];
+      message = "the documentation arguments are derived from the flake: its modules, packages, formatter and public library";
+    }
+    {
+      assertion =
+        let
+          expected = map (name: "nix flake init -t ${inputs.self.url}#${name}") (
+            builtins.attrNames inputs.self.templates
+          );
+          file = lib.findFirst (each: each.relative == "templates/README.md") null documentation.files;
+          usages = map (section: section.usage) (if file == null then [ ] else file.sections);
+        in
+        usages == expected && expected != [ ];
+      message = "each template is documented with the public command that instantiates it, nix flake init -t <flake url>#<name>";
+    }
+    {
+      assertion =
+        let
+          body = if section == null then "" else section.body;
+          section = indexOf "Packages" documentation.sections;
+        in
+        !(lib.hasInfix "docs-integration" body);
+      message = "a package marked meta.internal is not documented, so a check that only runs outside the sandbox stays out of the README";
+    }
+    {
+      assertion =
+        let
+          probe = inputs.self.lib.internal.documentation (
+            args
+            // {
+              packages = args.packages // {
+                hidden = pkgs.hello.overrideAttrs (_: {
+                  meta.internal = true;
+                });
+              };
+            }
+          );
+          section = indexOf "Packages" probe.sections;
+        in
+        !(lib.hasInfix "hidden" (if section == null then "" else section.body));
+      message = "the internal marking is what hides a package, not its name";
+    }
+    {
+      assertion =
+        let
+          present = map (section: section.title) documentation.sections;
+        in
+        present == lib.filter (title: lib.elem title present) canonicalOrder;
+      message = "the index lists its sections in the canonical order, whatever subset of them the flake has: ${
+        lib.concatStringsSep ", " (map (section: section.title) documentation.sections)
+      }";
+    }
+    {
+      assertion =
+        renderedNested == [
+          "printf '%s\n\n' '### probe' >> $out/README.md"
+          "printf '```%s\n%s\n```\n\n' sh 'nix run .#probe' >> $out/README.md"
+          "printf '*Type:* %s\n\n' template >> $out/README.md"
+        ];
+      message = "a section nested in another renders one heading level deeper, with the language on the fence and its type stated";
+    }
+    {
+      assertion =
+        let
+          body = if section == null then "" else section.body;
+          section = indexOf "Checks" withReexports.sections;
+        in
+        lib.hasInfix "genuine" body
+        && !(lib.hasInfix "devshell-probe" body)
+        && !(lib.hasInfix "pkgs-probe" body)
+        && !(lib.hasInfix "shared" body);
+      message = "checks that merely re-export a devshell or a package, or that share a name with a package, are not documented a second time";
+    }
+    {
+      assertion =
+        (inputs.self.lib.internal.documentTemplate {
+          name = "probe";
+          template.description = "probe template";
+        }).usage == "nix flake init -t .#probe";
+      message = "a flake that states no url documents its templates with the relative reference, nix flake init -t .#<name>";
+    }
+    {
+      assertion = internalCalls == [ ];
+      message = "the template only calls the public library, so a function it needs cannot stay internal: ${lib.concatStringsSep ", " (map toString internalCalls)}";
+    }
+    {
+      assertion =
+        importedFunction.documented
+        && importedFunction.description == "Summarises the second function, defined in another file."
+        && (lib.head importedFunction.arguments).argumentType == "the value the function returns";
+      message = "a function documented in a file other than the library entry point is found, with its summary and argument types";
+    }
+    {
+      assertion = internalFunction.documented && internalProblems == [ ];
+      message = "an internal function may leave its arguments undocumented without being reported, while its doc block is still used";
+    }
+    {
+      assertion = inputs.self.lib.internal.flakeDescription { root = ../.; } == "SYNACKDOCHE base flake";
+      message = "the purpose shown in every document is read from the description the flake states about itself";
+    }
   ];
   broken = inputs.self.lib.internal.documentation (
     args
@@ -165,6 +321,15 @@ let
       [ ]
     else
       lib.filter (line: lib.hasPrefix "- [" line) (lib.splitString "\n" group.body);
+  canonicalOrder = [
+    "Apps"
+    "Systems"
+    "Modules"
+    "Templates"
+    "Packages"
+    "Library"
+    "Checks"
+  ];
   configurationPackage = inputs.self.lib.internal.documentConfiguration {
     configuration = {
       config.networking.hostName = "host";
@@ -176,9 +341,7 @@ let
   documentedChecks = inputs.self.lib.internal.documentation (
     args
     // {
-      checks = {
-        probe = pkgs.hello;
-      };
+      checks.probe = pkgs.hello;
     }
   );
   evaluated = lib.evalModules {
@@ -241,27 +404,68 @@ let
     name = "mkSection";
     namespace = "lib.internal";
   };
+  importedFunction = inputs.self.lib.internal.documentFunction {
+    fn = { value }: value;
+    name = "second";
+    source = libraryFixture + "/lib";
+  };
+  indexOf = title: lib.findFirst (section: section.title == title) null;
+  internalCalls = lib.filter (
+    file: lib.hasInfix "lib.internal" (builtins.readFile file)
+  ) templateSources;
+  internalFunction = inputs.self.lib.internal.documentFunction {
+    fn = { value }: value;
+    internal = true;
+    name = "third";
+    source = libraryFixture + "/lib";
+  };
+  internalProblems = inputs.self.lib.internal.documentationProblems {
+    description = "A flake that exists to check the documentation rules themselves.";
+    sections = [ internalFunction ];
+  };
+  libraryFixture = pkgs.runCommand "library-fixture" { } ''
+    mkdir -p $out/lib
+    printf '%s\n' '{ }' > $out/lib/first.nix
+    cat > $out/lib/second.nix <<'EOF'
+    {
+      # Summarises the second function, defined in another file.
+      #
+      # # Arguments
+      # - `value`: the value the function returns
+      second = { value }: value;
+
+      # Summarises the internal function, whose arguments are not documented.
+      third = { value }: value;
+    }
+    EOF
+  '';
+  renderedNested = inputs.self.lib.internal.renderSection {
+    depth = 3;
+    s = inputs.self.lib.internal.section {
+      language = "sh";
+      title = "probe";
+      type = "template";
+      usage = "nix run .#probe";
+    };
+  };
   runnablePackage = inputs.self.lib.internal.documentPackage {
     name = "runnable";
     package = pkgs.writeShellScriptBin "runnable" "true" // {
-      meta = {
-        mainProgram = "runnable";
-      };
+      meta.mainProgram = "runnable";
     };
 
   };
   splitDocumentation = inputs.self.lib.internal.documentation (
     args
     // {
-      library = {
-        probe =
-          {
-            value,
-          }:
-          value;
-      };
+      library.probe =
+        {
+          value,
+        }:
+        value;
     }
   );
+  templateSources = lib.filesystem.listFilesRecursive ../templates;
   testedPackage = inputs.self.lib.internal.documentPackage {
     checks = [ "assertions" ];
     name = "probe";
@@ -275,6 +479,20 @@ let
     });
 
   };
+  withReexports = inputs.self.lib.internal.documentation (
+    args
+    // {
+      checks = args.checks // {
+        devshell-probe = pkgs.hello;
+        genuine = pkgs.emptyFile;
+        pkgs-probe = pkgs.hello;
+        shared = pkgs.emptyFile;
+      };
+      packages = args.packages // {
+        shared = pkgs.emptyFile;
+      };
+    }
+  );
 in
 pkgs.stdenv.mkDerivation {
   buildCommand = ''

@@ -3,4 +3,11 @@
   inputs,
   ...
 }:
-inputs.self.lib.internal.readmeGate (import ../docs-args.nix { inherit pkgs inputs; })
+inputs.self.lib.readmeGate (
+  inputs.self.lib.flakeArgs {
+    inherit pkgs;
+    checks = { };
+    flake = inputs.self;
+    root = ../.;
+  }
+)

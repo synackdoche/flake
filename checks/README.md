@@ -1,6 +1,6 @@
 # Checks
 
-SYNACKDOCHE base flake — shared formatter, pre-commit, docgate checks and flake scaffolding — checks
+SYNACKDOCHE GAMES - Base Flake — checks
 
 ## assertions
 

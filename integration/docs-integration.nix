@@ -142,10 +142,12 @@ in
     cd "$work/client"
     nix flake init -t "$repo#minimal" > /dev/null 2>&1 || fail "nix flake init could not instantiate the minimal template"
     [ -f flake.nix ] || fail "the template wrote no flake.nix"
-    [ -f checks/readme.nix ] || fail "the template wrote no readme check"
-    [ -f checks/documentation.nix ] || fail "the template wrote no documentation check"
+    [ ! -f formatter.nix ] || fail "the template still ships formatter.nix although the callable flake mixes in the default formatter"
+    [ ! -d packages ] || fail "the template still ships packages/docs.nix although the callable flake mixes in the docs package"
+    [ ! -d checks ] || fail "the template still ships checks/ although the callable flake mixes in the default checks"
+    [ ! -d devshells ] || fail "the template still ships devshells/ although the callable flake mixes in the default devshell"
     grep -q 'synackdoche-flake' flake.nix || fail "the template does not depend on this flake"
-    pass "nix flake init -t <flake>#minimal writes a client repository"
+    pass "nix flake init -t <flake>#minimal writes a minimal client repository"
 
     sed -i "s|url = \"github:synackdoche/flake\";|url = \"path:$repo\";|" flake.nix
     grep -q "url = \"path:$repo\";" flake.nix || fail "the template input could not be pointed at this flake"
@@ -154,6 +156,20 @@ in
     git add -A
     nix flake lock > "$work/lock.log" 2>&1 || fail "the instantiated template could not resolve this flake as its base: $(tail -3 "$work/lock.log")"
     pass "the instantiated template locks against this flake"
+
+    packages=$(nix eval --json ".#packages.$system" --apply 'builtins.attrNames') \
+      || fail "the callable flake produces no packages output in the client"
+    echo "$packages" | grep -q '"docs"' || fail "the callable flake does not mix in the docs package: $packages"
+    nix eval ".#formatter.$system" --apply 'd: d ? outPath' 2>/dev/null \
+      || fail "the callable flake does not mix in the default formatter"
+    nix eval ".#devShells.$system.default" --apply 'd: d ? outPath' 2>/dev/null \
+      || fail "the callable flake does not mix in the default devshell"
+    checks=$(nix eval --json ".#checks.$system" --apply 'builtins.attrNames') \
+      || fail "the callable flake produces no checks output in the client"
+    for check in readme pre-commit documentation; do
+      echo "$checks" | grep -q "\"$check\"" || fail "the callable flake does not mix in the $check check: $checks"
+    done
+    pass "the callable flake mixes in the default formatter, docs package, devshell and checks"
 
     nix run .#docs > /dev/null 2>&1 || fail "the docs app failed in the instantiated template"
     [ -f README.md ] || fail "the instantiated template produced no README"
@@ -169,5 +185,22 @@ in
         || fail "the instantiated template fails its $check check: $(tail -3 "$work/$check.log")"
     done
     pass "the instantiated template passes its documentation, readme and pre-commit checks"
+
+    mkdir "$work/override"
+    cd "$work/override"
+    nix flake init -t "$repo#minimal" > /dev/null 2>&1 || fail "override: could not instantiate the minimal template"
+    sed -i "s|url = \"github:synackdoche/flake\";|url = \"path:$repo\";|" flake.nix
+    mkdir -p packages checks devshells
+    printf '{ pkgs, ... }:\npkgs.hello\n' > formatter.nix
+    printf '{ pkgs, ... }:\npkgs.hello\n' > packages/docs.nix
+    printf '{ pkgs, ... }:\npkgs.hello\n' > checks/readme.nix
+    printf '{ pkgs, ... }:\npkgs.hello\n' > devshells/default.nix
+    git init -q && git add -A && rm -f flake.lock
+    nix flake lock > "$work/override-lock.log" 2>&1 || fail "override: could not lock: $(tail -3 "$work/override-lock.log")"
+    for attr in formatter.$system packages.$system.docs checks.$system.readme devShells.$system.default; do
+      name=$(nix eval --raw ".#$attr" --apply 'd: d.name' 2>/dev/null) || fail "override: $attr did not evaluate"
+      echo "$name" | grep -q hello || fail "override: $attr kept the default instead of the client's value: $name"
+    done
+    pass "the client's own formatter, docs, readme check and devshell win over the defaults"
   '';
 }

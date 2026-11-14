@@ -1,6 +1,6 @@
 # Library
 
-SYNACKDOCHE base flake — shared formatter, pre-commit, docgate checks and flake scaffolding — library
+SYNACKDOCHE GAMES - Base Flake — library
 
 ## Public
 
@@ -47,8 +47,8 @@ lib.flakeArgs { checks ? …, description ? …, flake, librarySource ? …, pkg
 
 *Arguments:*
 
-- `checks`: checks to document, every check of the flake by default; pass an empty set from a check, which
-- `description`: statement of what the flake is for, the flake title or the description in flake.nix by default
+- `checks`: checks to document, every check of the flake by default; pass an empty set from a check, which cannot enumerate the checks without forcing itself
+- `description`: statement of what the flake is for, the multiline description in flake.nix by default
 - `flake`: the flake whose outputs are documented
 - `librarySource`: directory holding the library sources whose doc blocks are read, `<flake>/lib` by default
 - `pkgs`: nixpkgs package set for the system being documented
@@ -425,8 +425,8 @@ lib.internal.writeDocumentation { description, name ? …, pkgs, sections }
 
 *Arguments:*
 
-- `description`: statement of what the flake is for, printed under the title
-- `name`: title of the document, the description serves as the title when it is empty
+- `description`: statement of what the flake is for, printed under the title; when name is empty its first line titles the document and the rest of it is printed under that title
+- `name`: title of the document, the first line of the description when it is empty
 - `pkgs`: nixpkgs package set the document derivation is built with
 - `sections`: sections to render, in order
 

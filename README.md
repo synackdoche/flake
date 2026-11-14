@@ -1,4 +1,6 @@
-# SYNACKDOCHE base flake — shared formatter, pre-commit, docgate checks and flake scaffolding
+# SYNACKDOCHE GAMES - Base Flake
+
+shared formatter, pre-commit, docgate checks and flake scaffolding
 
 ## Templates
 

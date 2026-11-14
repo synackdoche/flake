@@ -1,6 +1,6 @@
 # Packages
 
-SYNACKDOCHE base flake — shared formatter, pre-commit, docgate checks and flake scaffolding — packages
+SYNACKDOCHE GAMES - Base Flake — packages
 
 ## docs
 

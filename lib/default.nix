@@ -18,6 +18,16 @@ let
       names = added;
       options = lib.genAttrs added (optionName: evaluated.options.${optionName});
     };
+  descriptionBody =
+    description:
+    let
+      rest = lib.drop 1 (lib.splitString "\n" description);
+      withoutLeadingBlanks = dropWhile (line: line == "") rest;
+      withoutTrailingBlanks = lib.reverseList (
+        dropWhile (line: line == "") (lib.reverseList withoutLeadingBlanks)
+      );
+    in
+    lib.concatStringsSep "\n" withoutTrailingBlanks;
   docBlocksFor =
     source:
     let
@@ -45,23 +55,48 @@ let
       docArguments =
         name:
         let
+          argumentOf =
+            entry:
+            let
+              parsed = builtins.match "- `([^\`]+)`: (.+)" entry.bullet;
+            in
+            if parsed == null then
+              [ ]
+            else
+              [
+                {
+                  argument = builtins.elemAt parsed 0;
+                  argumentType = lib.concatStringsSep " " ([ (builtins.elemAt parsed 1) ] ++ entry.continuation);
+                }
+              ];
           fromArguments = dropWhile (line: line != "# Arguments") (docLines name);
+          grouped = lib.foldl' (
+            acc: line:
+            if isBullet line then
+              acc
+              ++ [
+                {
+                  bullet = line;
+                  continuation = [ ];
+                }
+              ]
+            else if acc == [ ] then
+              acc
+            else
+              let
+                previous = lib.last acc;
+              in
+              lib.init acc
+              ++ [
+                {
+                  inherit (previous) bullet;
+                  continuation = previous.continuation ++ [ (trimLeft line) ];
+                }
+              ]
+          ) [ ] fromArguments;
+          isBullet = line: lib.hasPrefix "- `" line;
         in
-        lib.concatMap (
-          bullet:
-          let
-            parsed = builtins.match "- `([^\`]+)`: (.+)" bullet;
-          in
-          if parsed == null then
-            [ ]
-          else
-            [
-              {
-                argument = builtins.elemAt parsed 0;
-                argumentType = builtins.elemAt parsed 1;
-              }
-            ]
-        ) (lib.filter (line: lib.hasPrefix "- `" line) fromArguments);
+        lib.concatMap argumentOf grouped;
       docLines =
         name:
         map (
@@ -190,11 +225,12 @@ let
               git
               gnugrep
               gnused
+              jq
               nix
             ]
           )
         }"
-        DOCS_DESCRIPTION=$(nix flake metadata --json "path:$PWD" 2>/dev/null | grep -o '"description": *"[^"]*"' | head -1 | sed -e 's/.*: *"//' -e 's/"$//')
+        DOCS_DESCRIPTION=$(nix flake metadata --json "path:$PWD" 2>/dev/null | jq -r '.description')
         export DOCS_DESCRIPTION
         expression=$(
           cat <<'EXPR'
@@ -202,7 +238,7 @@ let
           base = builtins.getFlake "path:${inputs.self.outPath}";
           flake = builtins.getFlake ("path:" + builtins.getEnv "PWD");
           pkgs = base.inputs.nixpkgs.legacyPackages.''${builtins.currentSystem};
-          description = if flake ? title then flake.title else builtins.getEnv "DOCS_DESCRIPTION";
+          description = builtins.getEnv "DOCS_DESCRIPTION";
           args = base.lib.flakeArgs { inherit description flake pkgs; };
         in
         base.lib.internal.docsTree args
@@ -565,7 +601,7 @@ let
           inherit (group) relative;
           doc = writeDocumentation {
             inherit pkgs;
-            description = "${description} — ${lib.toLower group.title}";
+            description = "${firstLine description} — ${lib.toLower group.title}";
             name = group.title;
             sections = group.entries;
           };
@@ -662,7 +698,7 @@ let
                 "- [${entry.title}](${group.relative}#${slug entry.title})"
                 + lib.optionalString (
                   (group.showDescriptions or true) && entry.description != ""
-                ) " — ${lib.head (lib.splitString "\n" entry.description)}"
+                ) " — ${firstLine entry.description}"
               ) (groupEntries group)
             );
           };
@@ -871,14 +907,14 @@ let
     # - `root`: source tree the documentation describes, the store copy of the flake by default
     # - `checks`: checks to document, every check of the flake by default; pass an empty set from a check, which
     #   cannot enumerate the checks without forcing itself
-    # - `description`: statement of what the flake is for, the flake title or the description in flake.nix by default
+    # - `description`: statement of what the flake is for, the multiline description in flake.nix by default
     # - `librarySource`: directory holding the library sources whose doc blocks are read, `<flake>/lib` by default
     flakeArgs =
       {
         pkgs,
         flake,
         checks ? null,
-        description ? flake.title or (flakeDescription { inherit root; }),
+        description ? flakeDescription { inherit root; },
         librarySource ? flake.outPath + "/lib",
         root ? flake.outPath,
       }:
@@ -909,16 +945,54 @@ let
     flakeDescription =
       { root }:
       let
-        declaration = lib.findFirst (
-          line: builtins.match "[[:space:]]*description[[:space:]]*=.*" line != null
-        ) null (lib.splitString "\n" (builtins.readFile (root + "/flake.nix")));
-        parsed =
-          if declaration == null then
+        indented =
+          if opening == null then
             null
           else
-            builtins.match "[[:space:]]*description[[:space:]]*=[[:space:]]*\"(.*)\"[[:space:]]*;?" declaration;
+            builtins.match "[[:space:]]*description[[:space:]]*=[[:space:]]*''(.*)" opening;
+        inline =
+          if opening == null then
+            null
+          else
+            builtins.match "[[:space:]]*description[[:space:]]*=[[:space:]]*''(.*)''[[:space:]]*;?" opening;
+        lines = lib.splitString "\n" (builtins.readFile (root + "/flake.nix"));
+        multiline =
+          if indented == null then
+            null
+          else
+            let
+              after = lib.drop 1 (
+                dropWhile (line: builtins.match "[[:space:]]*description[[:space:]]*=.*" line == null) lines
+              );
+              body = takeWhile (line: builtins.match ".*''[[:space:]]*;?" line == null) after;
+              closing = if lib.length body == lib.length after then null else lib.elemAt after (lib.length body);
+              content =
+                lib.optional (builtins.head indented != "") (builtins.head indented)
+                ++ body
+                ++ lib.optional hasContent lastPiece;
+              finish = if closing == null then null else builtins.match "^(.*)''[[:space:]]*;?$" closing;
+              hasContent = lastPiece != "" && builtins.match "[[:space:]]*" lastPiece == null;
+              lastPiece = if finish == null then "" else builtins.head finish;
+              rendered = lib.concatStringsSep "\n" (stripIndent content);
+            in
+            if closing == null then "" else rendered + lib.optionalString (!hasContent) "\n";
+        opening = lib.findFirst (
+          line: builtins.match "[[:space:]]*description[[:space:]]*=.*" line != null
+        ) null lines;
+        quoted =
+          if opening == null then
+            null
+          else
+            builtins.match "[[:space:]]*description[[:space:]]*=[[:space:]]*\"(.*)\"[[:space:]]*;?" opening;
       in
-      if parsed == null then "" else builtins.head parsed;
+      if quoted != null then
+        builtins.head quoted
+      else if inline != null then
+        builtins.head inline
+      else if multiline != null then
+        multiline
+      else
+        "";
     # Reports assertion messages that do not name a declared option, or that omit the expected value and the fix.
     #
     # # Arguments
@@ -1160,12 +1234,6 @@ let
                 status=1
               fi
             done < <(find "${root}/checks" -maxdepth 1 -name '*.nix' -print0)
-            for documented in $(grep '^## ' "${root}/checks/README.md" | sed -e 's|^## ||'); do
-              if [ ! -f "${root}/checks/$documented.nix" ]; then
-                echo "checks/README.md documents $documented, which no file in checks/ provides (regenerate it with: nix run .#docs)" >&2
-                status=1
-              fi
-            done
             awk '
               /^## / { name = substr($0, 4); next }
               /^\*Type:\*/ { afterType = 1; next }
@@ -1305,8 +1373,9 @@ let
     #
     # # Arguments
     # - `pkgs`: nixpkgs package set the document derivation is built with
-    # - `name`: title of the document, the description serves as the title when it is empty
-    # - `description`: statement of what the flake is for, printed under the title
+    # - `name`: title of the document, the first line of the description when it is empty
+    # - `description`: statement of what the flake is for, printed under the title; when name is empty its first
+    #   line titles the document and the rest of it is printed under that title
     # - `sections`: sections to render, in order
     writeDocumentation =
       {
@@ -1315,15 +1384,15 @@ let
         sections,
         name ? "",
       }:
+      let
+        body = if name == "" then descriptionBody description else description;
+        title = if name == "" then firstLine description else name;
+      in
       pkgs.stdenv.mkDerivation {
         buildCommand = ''
           mkdir -p $out
-          ${
-            if name == "" then
-              "printf '# %s\\n\\n' ${lib.escapeShellArg description} > $out/README.md"
-            else
-              "printf '# %s\\n\\n%s\\n\\n' ${lib.escapeShellArg name} ${lib.escapeShellArg description} > $out/README.md"
-          }
+          printf '# %s\n\n' ${lib.escapeShellArg title} > $out/README.md
+          ${lib.optionalString (body != "") "printf '%s\\n\\n' ${lib.escapeShellArg body} >> $out/README.md"}
           ${lib.concatStringsSep "\n" (
             lib.concatMap (
               s:
@@ -1343,6 +1412,7 @@ let
     lib.findFirst (index: !(predicate (lib.elemAt list index))) (lib.length list) (
       lib.genList (index: index) (lib.length list)
     );
+  firstLine = description: builtins.head (lib.splitString "\n" description);
   flattenOptions =
     prefix: options:
     lib.concatLists (
@@ -1422,6 +1492,20 @@ let
           test.test
       ) tests
     );
+  stripIndent =
+    lines:
+    let
+      indentOf = line: builtins.stringLength (builtins.head (builtins.match "([[:space:]]*).*" line));
+      meaningful = lib.filter (line: line != "") lines;
+      stripped =
+        line:
+        let
+          amount = lib.min width (indentOf line);
+        in
+        lib.substring amount (builtins.stringLength line - amount) line;
+      width = if meaningful == [ ] then 0 else lib.foldl' lib.min 999999 (map indentOf meaningful);
+    in
+    map stripped lines;
   takeWhile = predicate: list: lib.take (firstFalse predicate list) list;
   trimLeft = line: if lib.hasPrefix " " line then trimLeft (lib.removePrefix " " line) else line;
   words =

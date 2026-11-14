@@ -284,7 +284,9 @@ let
       assertion =
         importedFunction.documented
         && importedFunction.description == "Summarises the second function, defined in another file."
-        && (lib.head importedFunction.arguments).argumentType == "the value the function returns";
+        &&
+          (lib.head importedFunction.arguments).argumentType
+          == "the value the function returns, and the doc block bullet wraps onto a second line that the parser joins";
       message = "a function documented in a file other than the library entry point is found, with its summary and argument types";
     }
     {
@@ -292,7 +294,12 @@ let
       message = "an internal function may leave its arguments undocumented without being reported, while its doc block is still used";
     }
     {
-      assertion = inputs.self.lib.internal.flakeDescription { root = ../.; } == "SYNACKDOCHE base flake";
+      assertion =
+        inputs.self.lib.internal.flakeDescription { root = ../.; } == ''
+          SYNACKDOCHE GAMES - Base Flake
+
+          shared formatter, pre-commit, docgate checks and flake scaffolding
+        '';
       message = "the purpose shown in every document is read from the description the flake states about itself";
     }
   ];
@@ -431,7 +438,8 @@ let
       # Summarises the second function, defined in another file.
       #
       # # Arguments
-      # - `value`: the value the function returns
+      # - `value`: the value the function returns, and the doc block bullet
+      #   wraps onto a second line that the parser joins
       second = { value }: value;
 
       # Summarises the internal function, whose arguments are not documented.

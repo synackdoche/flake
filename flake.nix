@@ -116,6 +116,12 @@
             // lib.mapAttrs (
               system: d: if hasOwnFormatter then generated.formatter.${system} else d.formatter
             ) defaults;
+          nixosConfigurations = lib.mapAttrs (
+            _name: configuration:
+            configuration.extendModules {
+              modules = [ strippedMetaOptions ];
+            }
+          ) (generated.nixosConfigurations or { });
           packages =
             (generated.packages or { })
             // lib.mapAttrs (system: d: (generated.packages.${system} or { }) // d.packages) defaults;
@@ -124,6 +130,9 @@
         inherit inputs;
         systems = [ "x86_64-linux" ];
       };
+      strippedMetaOptions =
+        { lib, ... }:
+        lib.removeAttrs ((import ./modules/nixos/meta-options.nix) { inherit lib; }) [ "meta" ];
     in
     own
     // {

@@ -24,6 +24,40 @@ let
   };
   assertionList = [
     {
+      assertion =
+        let
+          section = exampleSection "withExample";
+        in
+        section != null
+        && lib.hasInfix "enabled = true" section.usage
+        && section.description == "A configuration that satisfies the interface above.";
+      message = "a module that sets meta.example renders it under its Options section";
+    }
+    {
+      assertion = exampleSection "withoutExample" == null;
+      message = "a module that sets no meta.example renders no example section";
+    }
+    {
+      assertion =
+        let
+          entry = indexOf "probe" file.sections;
+          file = lib.findFirst (
+            candidate: indexOf "probe" (candidate.sections or [ ]) != null
+          ) null (exampleDocs "withExample").files;
+        in
+        entry.description == "Enables the example subsystem.";
+      message = "a module that sets meta.description is documented with that description";
+    }
+    {
+      assertion =
+        let
+          mentions = needle: lib.any (lib.hasInfix needle) problems.problems;
+          problems = exampleDocs "badExample";
+        in
+        mentions "bogus.deep" && mentions "example.enabled";
+      message = "an example that sets an undeclared option or a mistyped value is reported as a documentation problem (problems: ${lib.concatStringsSep " | " (exampleDocs "badExample").problems})";
+    }
+    {
       assertion = documentation.problems == [ ];
       message = "every documented thing states how to use it and the flake description states what the flake is for (problems: ${lib.concatStringsSep " | " documentation.problems})";
     }
@@ -332,10 +366,10 @@ let
     else
       lib.filter (line: lib.hasPrefix "- [" line) (lib.splitString "\n" group.body);
   canonicalOrder = [
+    "Templates"
     "Apps"
     "Systems"
     "Modules"
-    "Templates"
     "Packages"
     "Library"
     "Checks"
@@ -375,6 +409,61 @@ let
       { assertions = assertionList; }
     ];
   };
+  exampleDocs =
+    name:
+    inputs.self.lib.internal.documentation (
+      args
+      // {
+        modules.probe = exampleModules.${name};
+      }
+    );
+  exampleModules = {
+    badExample =
+      { lib, ... }:
+      {
+        meta = {
+          description = "Enables the example subsystem.";
+          example = {
+            bogus.deep = true;
+            example.enabled = "yes";
+          };
+        };
+        options.example.enabled = lib.mkOption {
+          default = false;
+          type = lib.types.bool;
+        };
+      };
+    withExample =
+      { lib, ... }:
+      {
+        meta = {
+          description = "Enables the example subsystem.";
+          example.example.enabled = true;
+        };
+        options.example.enabled = lib.mkOption {
+          default = false;
+          type = lib.types.bool;
+        };
+      };
+    withoutExample =
+      { lib, ... }:
+      {
+        meta.description = "Enables the example subsystem.";
+        options.example.enabled = lib.mkOption {
+          default = false;
+          type = lib.types.bool;
+        };
+      };
+  };
+  exampleSection =
+    name:
+    let
+      file = lib.findFirst (
+        candidate: indexOf "probe" (candidate.sections or [ ]) != null
+      ) null (exampleDocs name).files;
+      moduleEntry = indexOf "probe" file.sections;
+    in
+    indexOf "example" moduleEntry.sections;
   failingAssertion =
     builtins.tryEval
       (lib.evalModules {

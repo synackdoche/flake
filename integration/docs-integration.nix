@@ -83,8 +83,12 @@ in
     echo '  };' >> modules/nixos/example.nix
     echo '  meta = {' >> modules/nixos/example.nix
     echo '    description = "Enables the example subsystem.";' >> modules/nixos/example.nix
+    echo '    example = { example.enabled = true; };' >> modules/nixos/example.nix
     echo '  };' >> modules/nixos/example.nix
     echo '}' >> modules/nixos/example.nix
+    printf '%s\n' '{ lib, ... }:' '{' '  meta.description = "First module provides alpha.";' '  options.first.enabled = lib.mkOption { description = "Whether first is enabled."; default = false; type = lib.types.bool; };' '}' > modules/nixos/first.nix
+    printf '%s\n' '{ lib, ... }:' '{' '  meta.description = "Second module provides beta.";' '  options.second.enabled = lib.mkOption { description = "Whether second is enabled."; default = false; type = lib.types.bool; };' '}' > modules/nixos/second.nix
+    printf '%s\n' '{ lib, ... }:' '{' '  imports = [ ./first.nix ./second.nix ];' '  meta.description = "Composed module importing first and second.";' '  options.composed.enabled = lib.mkOption { description = "Whether composed is enabled."; default = false; type = lib.types.bool; };' '}' > modules/nixos/composed.nix
     printf '%s\n' '{ pkgs, ... }:' 'pkgs.hello' > packages/hello.nix
     echo '{ inputs, ... }:' > lib/default.nix
     echo '{' >> lib/default.nix
@@ -101,8 +105,10 @@ in
     echo '  */' >> lib/default.nix
     echo '  double = { x }: x * 2;' >> lib/default.nix
     echo '}' >> lib/default.nix
-    echo '{ config, lib, pkgs, ... }:' > hosts/example/configuration.nix
+    echo '{ inputs, ... }:' > hosts/example/configuration.nix
     echo '{' >> hosts/example/configuration.nix
+    echo '  imports = [ inputs.self.nixosModules.example ];' >> hosts/example/configuration.nix
+    echo '  meta.description = "The example host runs the demo stack.";' >> hosts/example/configuration.nix
     echo '  networking.hostName = "example";' >> hosts/example/configuration.nix
     echo '  system.stateVersion = "24.05";' >> hosts/example/configuration.nix
     echo '  nixpkgs.hostPlatform = "x86_64-linux";' >> hosts/example/configuration.nix
@@ -114,32 +120,48 @@ in
     git init -q
     git add -A
     rm -f flake.lock
-    nix flake lock > "$work/alltypes-lock.log" 2>&1 || fail "all-types: could not lock: $(tail -3 \"$work/alltypes-lock.log\")"
+    nix flake lock > "$work/alltypes-lock.log" 2>&1 || fail "all-types: could not lock: $(tail -3 "$work/alltypes-lock.log")"
 
     hello=$(nix eval --raw ".#packages.$system.hello.name" 2>/dev/null) || fail "all-types: the callable flake dropped the client's package"
     echo "$hello" | grep -q hello || fail "all-types: the callable flake clobbered the client's package: $hello"
     pass "the callable flake keeps a client's packages alongside the mixed-in docs"
 
-    nix run .#docs > "$work/alltypes-docs.log" 2>&1 || fail "all-types: the docs app failed: $(tail -3 \"$work/alltypes-docs.log\")"
+    nix run .#docs > "$work/alltypes-docs.log" 2>&1 || fail "all-types: the docs app failed: $(tail -3 "$work/alltypes-docs.log")"
 
     [ -f modules/README.md ] || fail "all-types: no modules/README.md"
     [ ! -f modules/nixos/example/README.md ] && [ ! -f modules/nixos/example.README.md ] || fail "all-types: a per-module README still exists"
     grep -q '^## example$' modules/README.md || fail "all-types: modules/README.md documents no example module"
-    grep -q '\[modules/nixos/example.nix\]' modules/README.md || fail "all-types: the module has no source link"
+    grep -q '\[modules/nixos/example.nix\](nixos/example.nix)' modules/README.md || fail "all-types: the module has no source link relative to modules/README.md"
     grep -q 'Declare values under the namespaces above' modules/README.md && fail "all-types: the hardcoded example stub is still rendered"
+    grep -q '^### example$' modules/README.md || fail "all-types: the module's meta.example is not rendered"
+    grep -q 'enabled = true' modules/README.md || fail "all-types: the rendered example does not show the configured option"
     grep -q 'options.meta' modules/nixos/example.nix && fail "all-types: the client module declares the meta options itself"
+    grep -q 'meta\.description' modules/README.md && fail "all-types: a client module's Options list the meta namespace"
+
+    grep -q '^## first$' modules/README.md || fail "all-types: modules/README.md documents no first module"
+    grep -q '^## second$' modules/README.md || fail "all-types: modules/README.md documents no second module"
+    grep -q '^## composed$' modules/README.md || fail "all-types: modules/README.md documents no composed module"
+    grep -A10 '^## first$' modules/README.md | grep -q 'First module provides alpha\.' || fail "all-types: the first module is not documented with its own description"
+    grep -A10 '^## second$' modules/README.md | grep -q 'Second module provides beta\.' || fail "all-types: the second module is not documented with its own description"
+    grep -A10 '^## composed$' modules/README.md | grep -q 'Composed module importing first and second\.' || fail "all-types: the composed module is not documented with its own description"
+    grep -A10 '^## composed$' modules/README.md | grep -q 'First module provides alpha\.' && fail "all-types: the composed module inherits an imported module's description"
+    grep -q '#### first\.enabled' modules/README.md || fail "all-types: the composed module does not document the options it imports"
+    grep -q '#### composed\.enabled' modules/README.md || fail "all-types: the composed module does not document its own options"
 
     grep -q '^## hello$' packages/README.md || fail "all-types: packages/README.md documents no hello package"
-    grep -q '\[packages/hello.nix\]' packages/README.md || fail "all-types: the package has no source link"
+    grep -q '\[packages/hello.nix\](hello.nix)' packages/README.md || fail "all-types: the package has no source link relative to packages/README.md"
 
     grep -q '^## double$' lib/README.md || fail "all-types: lib/README.md documents no double function"
-    grep -q '\[lib/default.nix:' lib/README.md || fail "all-types: the function has no source link"
+    grep -q '\[lib/default.nix:.*\](default.nix)' lib/README.md || fail "all-types: the function has no source link relative to lib/README.md"
 
     [ -f systems/README.md ] || fail "all-types: no systems/README.md"
     grep -q '^## example$' systems/README.md || fail "all-types: systems/README.md documents no example system"
+    grep -A10 '^## example$' systems/README.md | grep -q 'The example host runs the demo stack\.' || fail "all-types: the system is not documented with the description the host states"
+    grep -A10 '^## example$' systems/README.md | grep -q 'hostName example, system x86_64-linux' || fail "all-types: the system does not state its host name and system"
+    grep -A10 '^## example$' systems/README.md | grep -q 'Enables the example subsystem\.' && fail "all-types: the system inherits an imported module's description"
 
     grep -q '^## demo$' templates/README.md || fail "all-types: templates/README.md documents no demo template"
-    grep -q '\[templates/demo/flake.nix\]' templates/README.md || fail "all-types: the template has no source link"
+    grep -q '\[templates/demo/flake.nix\](demo/flake.nix)' templates/README.md || fail "all-types: the template has no source link relative to templates/README.md"
 
     grep -q 'README.md#example' README.md || fail "all-types: the root index does not link to the module or system"
     grep -q 'packages/README.md#hello' README.md || fail "all-types: the root index does not link to the package"

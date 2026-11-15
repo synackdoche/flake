@@ -3,18 +3,75 @@ let
   contributed =
     modules: moduleName:
     let
-      added = lib.subtractLists (builtins.attrNames baseline) (builtins.attrNames evaluated.options);
-      baseline = (lib.evalModules { modules = [ harness ]; }).options;
-      described = evaluated.config.meta.description or null;
+      added = lib.unique (
+        lib.subtractLists (builtins.attrNames baseline) (builtins.attrNames evaluated.options)
+        ++ lib.filter declaredBy (builtins.attrNames evaluated.options)
+      );
+      baseline =
+        (lib.evalModules {
+          modules = [
+            harness
+            metaOptions
+          ];
+        }).options;
+      declaredBy =
+        name:
+        let
+          leaves = lib.collect (leaf: leaf ? _type && leaf._type == "option") evaluated.options.${name};
+        in
+        moduleFile != null
+        && lib.any (
+          leaf: lib.any (declared: toString declared == moduleFile) (leaf.declarations or [ ])
+        ) leaves;
+      declaresMeta =
+        let
+          probed = builtins.tryEval (
+            (lib.evalModules {
+              modules = [
+                harness
+                modules.${moduleName}
+              ];
+            }).options
+              ? meta.description
+          );
+        in
+        probed.success && probed.value;
       evaluated = lib.evalModules {
-        modules = [
-          harness
-          modules.${moduleName}
-        ];
+        modules = modulesFor;
       };
+      moduleFile =
+        let
+          value = modules.${moduleName};
+        in
+        if builtins.isString value || builtins.isPath value then toString value else null;
+      modulesFor = [ harness ] ++ lib.optional (!declaresMeta) metaOptions ++ [ modules.${moduleName} ];
+      ownMeta =
+        attribute:
+        let
+          entries =
+            let
+              values = evaluated.config.meta.${attribute} or [ ];
+            in
+            if builtins.isList values then values else [ ];
+          matching = lib.filter (
+            entry: moduleFile != null && toString (entry.file or "") == moduleFile
+          ) entries;
+        in
+        if matching != [ ] then
+          (lib.last matching).value
+        else if builtins.length entries == 1 then
+          (lib.head entries).value
+        else
+          null;
     in
     {
-      description = if described == null then "" else described;
+      inherit modulesFor;
+      description =
+        let
+          described = ownMeta "description";
+        in
+        if described == null then "" else described;
+      example = ownMeta "example";
       names = added;
       options = lib.genAttrs added (optionName: evaluated.options.${optionName});
     };
@@ -523,18 +580,44 @@ let
         usage = "nix build .#checks.${system}.${name}";
       };
     /**
-      Documents one NixOS configuration: how to build it, its host name and its system.
+      Documents one NixOS configuration: how to build it, the description the host states for itself and its host name and system.
 
       # Arguments
       - `name`: attribute name of the configuration
       - `configuration`: the evaluated configuration being documented
+      - `source`: path of the configuration file whose `meta.description` is read, null when the location is unknown
     */
     documentConfiguration =
-      { configuration, name }:
+      {
+        configuration,
+        name,
+        source ? null,
+      }:
+      let
+        hostName = toString (configuration.config.networking.hostName or "nixos");
+        stated =
+          let
+            entries =
+              let
+                value = configuration.config.meta.description or [ ];
+              in
+              if builtins.isList value then value else [ ];
+            matching = lib.filter (entry: source != null && toString (entry.file or "") == source) entries;
+          in
+          if matching != [ ] then
+            (lib.last matching).value
+          else if builtins.length entries == 1 then
+            (lib.head entries).value
+          else
+            null;
+        system = configuration.pkgs.stdenv.hostPlatform.system;
+      in
       section {
-        description = "hostName ${
-          toString (configuration.config.networking.hostName or "nixos")
-        }, system ${configuration.pkgs.stdenv.hostPlatform.system}";
+        description =
+          if stated != null then
+            "${stated} (hostName ${hostName}, system ${system})"
+          else
+            "hostName ${hostName}, system ${system}";
         language = "sh";
         title = name;
         type = "NixOS configuration";
@@ -700,6 +783,11 @@ let
           doc = writeDocumentation {
             inherit pkgs;
             description = "${firstLine description} — ${lib.toLower group.title}";
+            fromDir =
+              let
+                parent = lib.dirOf group.relative;
+              in
+              if parent == "." then "" else parent;
             name = group.title;
             sections = group.entries;
           };
@@ -714,6 +802,7 @@ let
                   documentConfiguration {
                     configuration = c;
                     name = n;
+                    source = "${toString root}/hosts/${n}/configuration.nix";
                   }
                 ) configurations;
                 relative = "systems/README.md";
@@ -878,27 +967,57 @@ let
           moduleName:
           let
             info = contributed modules moduleName;
+            inspectExample =
+              if info.example == null || !(builtins.isAttrs info.example) then
+                [ ]
+              else
+                let
+                  checked = lib.evalModules {
+                    modules = info.modulesFor ++ [ { config = info.example; } ];
+                  };
+                  failures = lib.filter (
+                    path: !(builtins.tryEval (lib.attrByPath path null checked.config)).success
+                  ) (leaves [ ] info.example);
+                  leaves =
+                    path: value:
+                    if builtins.isAttrs value then
+                      builtins.concatMap (name: leaves (path ++ [ name ]) value.${name}) (builtins.attrNames value)
+                    else
+                      [ path ];
+                in
+                map (
+                  path:
+                  "the example sets ${lib.concatStringsSep "." path}, which is not a declared option of the module or does not match its declared type"
+                ) failures;
           in
           section {
             description = if info.description != "" then info.description else summary info;
             language = "nix";
-            sections = [
-              (section {
+            problems = inspectExample;
+            sections =
+              lib.optional (info.names != [ ]) (section {
                 bodyFile = optionsDoc pkgs info.options;
                 title = "Options";
                 usage = "";
               })
-            ];
+              ++ lib.optional (info.example != null) (section {
+                description = "A configuration that satisfies the interface above.";
+                language = "nix";
+                title = "example";
+                type = "example configuration";
+                usage =
+                  if builtins.isString info.example then info.example else lib.generators.toPretty { } info.example;
+              });
             source = sourceOf "modules" moduleName;
             title = moduleName;
             type = "NixOS module";
             usage = "imports = [ inputs.<flake>.nixosModules.${moduleName} ];";
           };
         sections =
-          groupSummaryOf "Apps"
+          groupSummaryOf "Templates"
+          ++ groupSummaryOf "Apps"
           ++ groupSummaryOf "Systems"
           ++ groupSummaryOf "Modules"
-          ++ groupSummaryOf "Templates"
           ++ groupSummaryOf "Packages"
           ++ groupSummaryOf "Library"
           ++ groupSummaryOf "Checks";
@@ -1018,7 +1137,10 @@ let
       ++ map (
         entry:
         "${entry.path}: is documented with a `#` line-comment block directly above it, which is not read; the only doc-comment format is the RFC-145 `/** */` block"
-      ) (lib.filter (entry: entry.section.type == "function" && entry.section.hashCommented) all);
+      ) (lib.filter (entry: entry.section.type == "function" && entry.section.hashCommented) all)
+      ++ lib.concatMap (
+        entry: map (problem: "${entry.path}: ${problem}") (entry.section.problems or [ ])
+      ) all;
     /**
       Derives the arguments that document a flake, from the flake itself, so a repository states nothing about its own
       documentation.
@@ -1402,10 +1524,19 @@ let
       - `s`: the section to render
     */
     renderSection =
-      { depth, s }:
+      {
+        depth,
+        s,
+        fromDir ? "",
+      }:
       let
         esc = lib.escapeShellArg;
         head = "${lib.concatStringsSep "" (lib.genList (_: "#") depth)} ${s.title}";
+        sourceLink =
+          if fromDir != "" && lib.hasPrefix "${fromDir}/" s.source.file then
+            lib.removePrefix "${fromDir}/" s.source.file
+          else
+            s.source.file;
       in
       [ "printf '%s\n\n' ${esc head} >> $out/README.md" ]
       ++ lib.optionals (s.usage != "") [
@@ -1436,19 +1567,19 @@ let
       ++ lib.optionals (s.source != null) [
         "printf '*Source:* [%s](%s)\n\n' ${
           esc (s.source.file + lib.optionalString (s.source.line != null) ":${toString s.source.line}")
-        } ${esc s.source.file} >> $out/README.md"
+        } ${esc sourceLink} >> $out/README.md"
       ]
       ++ lib.optionals (s.body != null) [
         "printf '%s\n\n' ${esc s.body} >> $out/README.md"
       ]
       ++ lib.optionals (s.bodyFile != null) [
-        "sed -e 's/^## /### /' ${s.bodyFile} >> $out/README.md"
+        "cat ${s.bodyFile} >> $out/README.md"
         "printf '\n' >> $out/README.md"
       ]
       ++ lib.concatMap (
         s:
         renderSection {
-          inherit s;
+          inherit s fromDir;
           depth = depth + 1;
         }
       ) s.sections;
@@ -1468,6 +1599,7 @@ let
       - `bodyFile`: path to a rendered markdown fragment appended after the description
       - `sections`: child sections, rendered one heading level deeper
       - `tests`: list of { test, documented } naming the checks the thing is tested by
+      - `problems`: problems found while documenting this thing, each reported as a check failure
     */
     section =
       {
@@ -1481,6 +1613,7 @@ let
         hashCommented ? false,
         internal ? false,
         language ? "",
+        problems ? [ ],
         sections ? [ ],
         source ? null,
         tests ? [ ],
@@ -1499,6 +1632,7 @@ let
           type
           body
           bodyFile
+          problems
           sections
           source
           tests
@@ -1526,6 +1660,7 @@ let
         pkgs,
         description,
         sections,
+        fromDir ? "",
         name ? "",
       }:
       let
@@ -1541,7 +1676,7 @@ let
             lib.concatMap (
               s:
               renderSection {
-                inherit s;
+                inherit s fromDir;
                 depth = 2;
               }
             ) sections
@@ -1600,11 +1735,6 @@ let
         internal = true;
         type = lib.types.listOf lib.types.unspecified;
       };
-      meta.description = lib.mkOption {
-        default = null;
-        internal = true;
-        type = lib.types.nullOr lib.types.str;
-      };
       networking.domain = lib.mkOption {
         description = "Domain the documentation harness uses to derive host names.";
         type = lib.types.str;
@@ -1617,12 +1747,67 @@ let
     };
   };
   lib = inputs.nixpkgs.lib;
-  optionsDoc =
-    pkgs: options:
-    (pkgs.nixosOptionsDoc {
-      inherit options;
-      transformOptions = option: option // { declarations = [ ]; };
-    }).optionsCommonMark;
+  metaOptions =
+    { lib, ... }:
+    lib.removeAttrs (metaOptionsDocumented { inherit lib; }) [ "meta" ];
+  metaOptionsDocumented = import ../modules/nixos/meta-options.nix;
+  optionMarkdown =
+    depth: options:
+    let
+      heading = lib.concatStringsSep "" (lib.genList (_: "#") depth);
+      render =
+        path: value:
+        if value ? _type && value._type == "option" then
+          renderOption path value
+        else
+          lib.concatStrings (lib.mapAttrsToList (name: child: render (path ++ [ name ]) child) value);
+      renderOption =
+        path: option:
+        let
+          default =
+            if rendered.success && rendered.value != "null" then
+              ''
+                *Default:*
+
+                ```nix
+                ${rendered.value}
+                ```
+              ''
+            else
+              "";
+          example =
+            if renderedExample.success && renderedExample.value != null then
+              ''
+                *Example:*
+
+                ```nix
+                ${renderedExample.value}
+                ```
+              ''
+            else
+              "";
+          rendered = builtins.tryEval (lib.generators.toPretty { } option.default);
+          renderedExample = builtins.tryEval (
+            if option ? example && option.example != null then
+              lib.generators.toPretty { } option.example
+            else
+              null
+          );
+        in
+        lib.concatStringsSep "\n\n" (
+          lib.filter (part: part != "") [
+            "${heading} ${lib.concatStringsSep "." path}"
+            (option.description or "")
+            "*Type:* ${option.type.description or "value"}"
+            default
+            example
+            (lib.optionalString (option.internal or false) "**Internal.**")
+          ]
+        )
+        + "\n\n";
+    in
+    render [ ] options;
+  optionsDoc = pkgs: options: pkgs.writeText "options.md" (optionMarkdown 4 options);
   renderPath = path: lib.concatStringsSep "." path;
   renderTestLinks =
     { tests }:

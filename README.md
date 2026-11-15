@@ -6,6 +6,10 @@ shared formatter, pre-commit, docgate checks and flake scaffolding
 
 - [minimal](templates/README.md#minimal) — Minimal repository — the smallest flake that uses the SYNACKDOCHE base flake
 
+## Modules
+
+- [meta-options](modules/README.md#meta-options) — Declares the module metadata options the documentation pipeline reads, so a module states its summary and its worked example without declaring options itself.
+
 ## Packages
 
 - [docs](packages/README.md#docs) — Writes the generated documentation into the working tree, or checks that it is current and staged.

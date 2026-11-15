@@ -5,7 +5,7 @@ let
     let
       added = lib.subtractLists (builtins.attrNames baseline) (builtins.attrNames evaluated.options);
       baseline = (lib.evalModules { modules = [ harness ]; }).options;
-      described = builtins.tryEval evaluated.config.meta.description;
+      described = evaluated.config.meta.description or null;
       evaluated = lib.evalModules {
         modules = [
           harness
@@ -14,7 +14,7 @@ let
       };
     in
     {
-      description = if described.success then described.value else "";
+      description = if described == null then "" else described;
       names = added;
       options = lib.genAttrs added (optionName: evaluated.options.${optionName});
     };
@@ -885,15 +885,6 @@ let
             sections = [
               (section {
                 bodyFile = optionsDoc pkgs info.options;
-                sections = [
-                  (section {
-                    description = "Declare values under the namespaces above; the interface asserts their referential integrity.";
-                    language = "nix";
-                    title = "example";
-                    type = "NixOS configuration";
-                    usage = "{ }";
-                  })
-                ];
                 title = "Options";
                 usage = "";
               })
@@ -975,7 +966,11 @@ let
         unsigned = lib.filter (entry: lib.hasSuffix " " entry.section.usage) all;
         untyped = lib.filter (entry: entry.section.usage != "" && entry.section.type == "") all;
         withoutUsage = lib.filter (
-          entry: entry.section.sections == [ ] && entry.section.usage == "" && entry.section.body == null
+          entry:
+          entry.section.sections == [ ]
+          && entry.section.usage == ""
+          && entry.section.body == null
+          && entry.section.bodyFile == null
         ) all;
       in
       lib.optional (
@@ -1604,6 +1599,11 @@ let
         default = [ ];
         internal = true;
         type = lib.types.listOf lib.types.unspecified;
+      };
+      meta.description = lib.mkOption {
+        default = null;
+        internal = true;
+        type = lib.types.nullOr lib.types.str;
       };
       networking.domain = lib.mkOption {
         description = "Domain the documentation harness uses to derive host names.";

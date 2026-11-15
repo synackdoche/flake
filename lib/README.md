@@ -255,7 +255,7 @@ lib.internal.documentationProblems { description, sections }
 
 Reports every way a rendered document falls short of being usable: purpose unstated, usage missing, arguments untyped.
 
-*Source:* [lib/default.nix:956](lib/default.nix)
+*Source:* [lib/default.nix:947](lib/default.nix)
 
 ## flakeArgs
 
@@ -276,7 +276,7 @@ lib.internal.flakeArgs { checks ? …, description ? …, flake, librarySource ?
 
 Derives the arguments that document a flake, from the flake itself, so a repository states nothing about its own documentation.
 
-*Source:* [lib/default.nix:1040](lib/default.nix)
+*Source:* [lib/default.nix:1035](lib/default.nix)
 
 ## flakeDescription
 
@@ -292,7 +292,7 @@ lib.internal.flakeDescription { root }
 
 Reads the description a flake states about itself, which is the only statement of what the flake is for.
 
-*Source:* [lib/default.nix:1075](lib/default.nix)
+*Source:* [lib/default.nix:1070](lib/default.nix)
 
 ## messageProblems
 
@@ -309,7 +309,7 @@ lib.internal.messageProblems { assertions, options }
 
 Reports assertion messages that do not name a declared option, or that omit the expected value and the fix.
 
-*Source:* [lib/default.nix:1133](lib/default.nix)
+*Source:* [lib/default.nix:1128](lib/default.nix)
 
 ## mkAssertion
 
@@ -329,7 +329,7 @@ lib.internal.mkAssertion { at, condition, expected, fix, violation }
 
 Builds an assertion record whose message states the violation, what was expected and how to fix it.
 
-*Source:* [lib/default.nix:1168](lib/default.nix)
+*Source:* [lib/default.nix:1163](lib/default.nix)
 
 ## mkSection
 
@@ -347,7 +347,7 @@ lib.internal.mkSection { body ? …, sections ? …, title }
 
 Groups child sections under one title, for a part of the document that is itself not a usable thing.
 
-*Source:* [lib/default.nix:1192](lib/default.nix)
+*Source:* [lib/default.nix:1187](lib/default.nix)
 
 ## preCommit
 
@@ -365,7 +365,7 @@ lib.internal.preCommit { extraHooks ? …, pkgs, src }
 
 Runs treefmt through this flake's formatter, plus deadnix, statix and pedantix.
 
-*Source:* [lib/default.nix:1219](lib/default.nix)
+*Source:* [lib/default.nix:1214](lib/default.nix)
 
 ## readmeGate
 
@@ -395,7 +395,7 @@ lib.internal.readmeGate { apps ? …, checks ? …, configurations ? …, descri
 
 Fails when a committed README differs from the generated documentation, or when README.md and checks/README.md disagree about a check.
 
-*Source:* [lib/default.nix:1282](lib/default.nix)
+*Source:* [lib/default.nix:1277](lib/default.nix)
 
 ## renderSection
 
@@ -412,7 +412,7 @@ lib.internal.renderSection { depth, s }
 
 Renders a list of sections into a README derivation.
 
-*Source:* [lib/default.nix:1409](lib/default.nix)
+*Source:* [lib/default.nix:1404](lib/default.nix)
 
 ## section
 
@@ -441,7 +441,7 @@ lib.internal.section { arguments ? …, body ? …, bodyFile ? …, description 
 
 One documented thing: what it is, how to call or import it, what its arguments are and any child sections.
 
-*Source:* [lib/default.nix:1477](lib/default.nix)
+*Source:* [lib/default.nix:1472](lib/default.nix)
 
 ## testsLine
 
@@ -457,7 +457,7 @@ lib.internal.testsLine { tests }
 
 Renders the test links of a section: a markdown link when the check is documented, plain text when it is not.
 
-*Source:* [lib/default.nix:1518](lib/default.nix)
+*Source:* [lib/default.nix:1513](lib/default.nix)
 
 ## writeDocumentation
 
@@ -476,5 +476,5 @@ lib.internal.writeDocumentation { description, name ? …, pkgs, sections }
 
 Writes one document: a heading, the statement of purpose, and the sections rendered in order.
 
-*Source:* [lib/default.nix:1529](lib/default.nix)
+*Source:* [lib/default.nix:1524](lib/default.nix)
 

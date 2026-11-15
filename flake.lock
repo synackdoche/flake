@@ -119,11 +119,11 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1794670204,
-        "narHash": "sha256-2c5tBbdL832SlSknL8ckI9Tg68ObpS3SzVJc8EFV5X0=",
+        "lastModified": 1794700920,
+        "narHash": "sha256-uKvmjDtKHB7iRYxj915a0/xZzQr6vtGwvQQpFDkPsas=",
         "owner": "synackdoche",
         "repo": "nixpkgs",
-        "rev": "87ec967066499ecd1ba37a8d86b2763037122ba6",
+        "rev": "89978455f979c9930868fbe20bc2baac7250664a",
         "type": "github"
       },
       "original": {

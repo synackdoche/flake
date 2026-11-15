@@ -77,9 +77,12 @@ in
     mkdir -p modules/nixos packages lib hosts/example templates/demo
     echo '{ config, lib, ... }:' > modules/nixos/example.nix
     echo '{' >> modules/nixos/example.nix
+    echo '  config = { };' >> modules/nixos/example.nix
     echo '  options = {' >> modules/nixos/example.nix
-    echo '    meta.description = lib.mkOption { description = "What the module provides, shown as its summary."; default = "Enables the example subsystem."; type = lib.types.str; };' >> modules/nixos/example.nix
     echo '    example.enabled = lib.mkOption { description = "Whether the example subsystem is enabled."; default = false; type = lib.types.bool; };' >> modules/nixos/example.nix
+    echo '  };' >> modules/nixos/example.nix
+    echo '  meta = {' >> modules/nixos/example.nix
+    echo '    description = "Enables the example subsystem.";' >> modules/nixos/example.nix
     echo '  };' >> modules/nixos/example.nix
     echo '}' >> modules/nixos/example.nix
     printf '%s\n' '{ pkgs, ... }:' 'pkgs.hello' > packages/hello.nix
@@ -123,6 +126,8 @@ in
     [ ! -f modules/nixos/example/README.md ] && [ ! -f modules/nixos/example.README.md ] || fail "all-types: a per-module README still exists"
     grep -q '^## example$' modules/README.md || fail "all-types: modules/README.md documents no example module"
     grep -q '\[modules/nixos/example.nix\]' modules/README.md || fail "all-types: the module has no source link"
+    grep -q 'Declare values under the namespaces above' modules/README.md && fail "all-types: the hardcoded example stub is still rendered"
+    grep -q 'options.meta' modules/nixos/example.nix && fail "all-types: the client module declares the meta options itself"
 
     grep -q '^## hello$' packages/README.md || fail "all-types: packages/README.md documents no hello package"
     grep -q '\[packages/hello.nix\]' packages/README.md || fail "all-types: the package has no source link"

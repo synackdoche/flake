@@ -70,52 +70,8 @@ in
   all-types = suite "all-types" ''
     mkdir "$work/alltypes"
     cd "$work/alltypes"
-    nix flake init -t "$repo#minimal" > /dev/null 2>&1 || fail "all-types: could not instantiate the minimal template"
+    cp -r "$repo/integration/fixtures/all-types/." .
     sed -i "s|url = \"github:synackdoche/flake\";|url = \"path:$repo\";|" flake.nix
-    sed -i 's|description = "Minimal repository — the smallest flake that uses the SYNACKDOCHE base flake";|description = "All-types consumer exercising every documented output kind of the base flake";|' flake.nix
-
-    mkdir -p modules/nixos packages lib hosts/example templates/demo
-    echo '{ config, lib, ... }:' > modules/nixos/example.nix
-    echo '{' >> modules/nixos/example.nix
-    echo '  config = { };' >> modules/nixos/example.nix
-    echo '  options = {' >> modules/nixos/example.nix
-    echo '    example.enabled = lib.mkOption { description = "Whether the example subsystem is enabled."; default = false; type = lib.types.bool; };' >> modules/nixos/example.nix
-    echo '  };' >> modules/nixos/example.nix
-    echo '  meta = {' >> modules/nixos/example.nix
-    echo '    description = "Enables the example subsystem.";' >> modules/nixos/example.nix
-    echo '    example = { example.enabled = true; };' >> modules/nixos/example.nix
-    echo '  };' >> modules/nixos/example.nix
-    echo '}' >> modules/nixos/example.nix
-    printf '%s\n' '{ lib, ... }:' '{' '  meta.description = "First module provides alpha.";' '  options.first.enabled = lib.mkOption { description = "Whether first is enabled."; default = false; type = lib.types.bool; };' '}' > modules/nixos/first.nix
-    printf '%s\n' '{ lib, ... }:' '{' '  meta.description = "Second module provides beta.";' '  options.second.enabled = lib.mkOption { description = "Whether second is enabled."; default = false; type = lib.types.bool; };' '}' > modules/nixos/second.nix
-    printf '%s\n' '{ lib, ... }:' '{' '  imports = [ ./first.nix ./second.nix ];' '  meta.description = "Composed module importing first and second.";' '  options.composed.enabled = lib.mkOption { description = "Whether composed is enabled."; default = false; type = lib.types.bool; };' '}' > modules/nixos/composed.nix
-    printf '%s\n' '{ pkgs, ... }:' 'pkgs.hello' > packages/hello.nix
-    echo '{ inputs, ... }:' > lib/default.nix
-    echo '{' >> lib/default.nix
-    echo '  /**' >> lib/default.nix
-    echo '    Doubles its argument.' >> lib/default.nix
-    echo >> lib/default.nix
-    echo '    # Type' >> lib/default.nix
-    echo >> lib/default.nix
-    echo '    double :: Int -> Int' >> lib/default.nix
-    echo >> lib/default.nix
-    echo '    # Arguments' >> lib/default.nix
-    echo >> lib/default.nix
-    echo '    - `x`: the value to double' >> lib/default.nix
-    echo '  */' >> lib/default.nix
-    echo '  double = { x }: x * 2;' >> lib/default.nix
-    echo '}' >> lib/default.nix
-    echo '{ inputs, ... }:' > hosts/example/configuration.nix
-    echo '{' >> hosts/example/configuration.nix
-    echo '  imports = [ inputs.self.nixosModules.example ];' >> hosts/example/configuration.nix
-    echo '  meta.description = "The example host runs the demo stack.";' >> hosts/example/configuration.nix
-    echo '  networking.hostName = "example";' >> hosts/example/configuration.nix
-    echo '  system.stateVersion = "24.05";' >> hosts/example/configuration.nix
-    echo '  nixpkgs.hostPlatform = "x86_64-linux";' >> hosts/example/configuration.nix
-    echo '  fileSystems."/" = { device = "none"; fsType = "tmpfs"; };' >> hosts/example/configuration.nix
-    echo '  boot.loader.systemd-boot.enable = true;' >> hosts/example/configuration.nix
-    echo '}' >> hosts/example/configuration.nix
-    echo '{ description = "A demo template."; }' > templates/demo/flake.nix
 
     git init -q
     git add -A
@@ -125,6 +81,22 @@ in
     hello=$(nix eval --raw ".#packages.$system.hello.name" 2>/dev/null) || fail "all-types: the callable flake dropped the client's package"
     echo "$hello" | grep -q hello || fail "all-types: the callable flake clobbered the client's package: $hello"
     pass "the callable flake keeps a client's packages alongside the mixed-in docs"
+
+    grep -q 'meta-options' modules/nixos/*.nix && fail "all-types: a client module imports the meta options itself"
+    metaStates=$(nix eval --impure --json --expr "
+      let
+        flake = builtins.getFlake \"path:$PWD\";
+        lib = flake.inputs.nixpkgs.lib;
+        evaluated = lib.evalModules {
+          modules = [ flake.nixosModules.example flake.nixosModules.composed ];
+        };
+      in
+      map (definition: definition.value) evaluated.config.meta.description
+    " 2> "$work/alltypes-meta.log") || fail "all-types: a published module does not declare the meta options: $(tail -3 "$work/alltypes-meta.log")"
+    echo "$metaStates" | grep -q 'Enables the example subsystem' || fail "all-types: the example module's own description is missing from a bare evaluation: $metaStates"
+    echo "$metaStates" | grep -q 'Composed module importing' || fail "all-types: the composed module's own description is missing from a bare evaluation: $metaStates"
+    echo "$metaStates" | grep -q 'Declares the module metadata options' && fail "all-types: the meta options module leaks its own description into a bare evaluation"
+    pass "published modules carry the meta options into a bare evaluation of several modules"
 
     nix run .#docs > "$work/alltypes-docs.log" 2>&1 || fail "all-types: the docs app failed: $(tail -3 "$work/alltypes-docs.log")"
 
@@ -237,6 +209,54 @@ in
       *"stale: STRAY.README.md"*) pass "the readme gate fails on a README the generator does not produce" ;;
       *) fail "the readme gate did not report a stale README: $out" ;;
     esac
+  '';
+  meta-dedupe = suite "meta-dedupe" ''
+    mkdir "$work/meta"
+    cp -r "$repo/integration/fixtures/meta-dedupe/." "$work/meta/"
+    cd "$work/meta"
+    sed -i "s|url = \"github:synackdoche/flake\";|url = \"path:$repo\";|" flake.nix
+    git init -q
+    git add -A
+    rm -f flake.lock
+    nix flake lock > "$work/meta-lock.log" 2>&1 || fail "meta-dedupe: could not lock: $(tail -3 "$work/meta-lock.log")"
+
+    states=$(nix eval --impure --json --expr "
+      let
+        flake = builtins.getFlake \"path:$PWD\";
+        lib = flake.inputs.nixpkgs.lib;
+        evaluated = lib.evalModules {
+          modules = [ flake.nixosModules.a flake.nixosModules.b ];
+        };
+      in
+      {
+        declarations = builtins.length evaluated.options.meta.description.declarations;
+        states = map (definition: definition.value) evaluated.config.meta.description;
+      }
+    " 2> "$work/meta-shared.log") || fail "meta-dedupe: two published modules did not share one declaration: $(tail -3 "$work/meta-shared.log")"
+    echo "$states" | grep -q '"declarations":1' || fail "meta-dedupe: the meta options were declared more than once: $states"
+    echo "$states" | grep -q 'Module A states its own description' || fail "meta-dedupe: module a's description is missing from the shared evaluation: $states"
+    echo "$states" | grep -q 'Module B states its own description' || fail "meta-dedupe: module b's description is missing from the shared evaluation: $states"
+    echo "$states" | grep -q 'Declares the module metadata options' && fail "meta-dedupe: the injected module leaked its own description into the shared evaluation: $states"
+    pass "the injected module dedupes by file identity: two wrapped modules in one evaluation declare the meta options once"
+
+    if nix eval --impure --expr "
+      let
+        flake = builtins.getFlake \"path:$PWD\";
+        lib = flake.inputs.nixpkgs.lib;
+        meta = { lib, ... }: lib.removeAttrs ((import (flake.inputs.synackdoche-flake.outPath + \"/modules/nixos/meta-options.nix\")) { inherit lib; }) [ \"meta\" ];
+      in
+      builtins.length
+        (lib.evalModules {
+          modules = [
+            { imports = [ meta ./modules/nixos/a.nix ]; }
+            { imports = [ meta ./modules/nixos/b.nix ]; }
+          ];
+        }).options.meta.description.declarations
+    " > "$work/meta-inline.log" 2>&1; then
+      fail "meta-dedupe: an inline function module injected twice did not collide"
+    fi
+    grep -q 'already declared' "$work/meta-inline.log" || fail "meta-dedupe: the inline collision did not report a duplicate declaration: $(tail -3 "$work/meta-inline.log")"
+    pass "an inline function module injected twice collides, which is why the stripped copy is a file"
   '';
   template = suite "template" ''
     mkdir "$work/client"

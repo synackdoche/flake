@@ -36,6 +36,7 @@
         all-types = jailed "all-types";
         check-mode = jailed "check-mode";
         gate = jailed "gate";
+        meta-dedupe = jailed "meta-dedupe";
         template = jailed "template";
       };
     };

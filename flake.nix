@@ -122,6 +122,9 @@
               modules = [ strippedMetaOptions ];
             }
           ) (generated.nixosConfigurations or { });
+          nixosModules = lib.mapAttrs (_name: module: {
+            imports = [ strippedMetaOptions ] ++ lib.toList module;
+          }) (generated.nixosModules or { });
           packages =
             (generated.packages or { })
             // lib.mapAttrs (system: d: (generated.packages.${system} or { }) // d.packages) defaults;
@@ -130,9 +133,7 @@
         inherit inputs;
         systems = [ "x86_64-linux" ];
       };
-      strippedMetaOptions =
-        { lib, ... }:
-        lib.removeAttrs ((import ./modules/nixos/meta-options.nix) { inherit lib; }) [ "meta" ];
+      strippedMetaOptions = ./lib/meta-options.nix;
     in
     own
     // {

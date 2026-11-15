@@ -19,9 +19,9 @@ let
         let
           leaves = lib.collect (leaf: leaf ? _type && leaf._type == "option") evaluated.options.${name};
         in
-        moduleFile != null
-        && lib.any (
-          leaf: lib.any (declared: toString declared == moduleFile) (leaf.declarations or [ ])
+        lib.any (
+          leaf:
+          lib.any (declared: lib.any (file: toString declared == file) moduleFiles) (leaf.declarations or [ ])
         ) leaves;
       declaresMeta =
         let
@@ -39,11 +39,16 @@ let
       evaluated = lib.evalModules {
         modules = modulesFor;
       };
-      moduleFile =
+      moduleFiles =
         let
           value = modules.${moduleName};
         in
-        if builtins.isString value || builtins.isPath value then toString value else null;
+        if builtins.isString value || builtins.isPath value then
+          [ (toString value) ]
+        else if builtins.isAttrs value && value ? imports then
+          lib.filter (entry: builtins.isString entry || builtins.isPath entry) (lib.flatten value.imports)
+        else
+          [ ];
       modulesFor = [ harness ] ++ lib.optional (!declaresMeta) metaOptions ++ [ modules.${moduleName} ];
       ownMeta =
         attribute:
@@ -53,9 +58,7 @@ let
               values = evaluated.config.meta.${attribute} or [ ];
             in
             if builtins.isList values then values else [ ];
-          matching = lib.filter (
-            entry: moduleFile != null && toString (entry.file or "") == moduleFile
-          ) entries;
+          matching = lib.filter (entry: lib.elem (toString (entry.file or "")) moduleFiles) entries;
         in
         if matching != [ ] then
           (lib.last matching).value
@@ -1747,10 +1750,7 @@ let
     };
   };
   lib = inputs.nixpkgs.lib;
-  metaOptions =
-    { lib, ... }:
-    lib.removeAttrs (metaOptionsDocumented { inherit lib; }) [ "meta" ];
-  metaOptionsDocumented = import ../modules/nixos/meta-options.nix;
+  metaOptions = ../lib/meta-options.nix;
   optionMarkdown =
     depth: options:
     let

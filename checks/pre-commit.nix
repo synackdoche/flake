@@ -6,7 +6,7 @@
 let
   inherit (inputs.nixpkgs) lib;
   enabled = lib.attrNames (lib.filterAttrs (_name: hook: hook.enable or false) hookSet.config.hooks);
-  hookSet = inputs.self.lib.internal.preCommit {
+  hookSet = inputs.self.lib.internal.dev.preCommit {
     inherit pkgs;
     extraHooks.integration = {
       enable = true;

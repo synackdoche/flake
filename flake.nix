@@ -32,7 +32,7 @@
       docsFor =
         system:
         let
-          docs = own.lib.internal.docsApp { pkgs = inputs.nixpkgs.legacyPackages.${system}; };
+          docs = own.lib.internal.docs.app { pkgs = inputs.nixpkgs.legacyPackages.${system}; };
         in
         docs
         // {
@@ -63,7 +63,7 @@
             let
               existingChecks = generated.checks.${system} or { };
               pkgs = inputs.nixpkgs.legacyPackages.${system};
-              preCommit = own.lib.internal.preCommit {
+              preCommit = own.lib.internal.dev.preCommit {
                 inherit pkgs;
                 src = self.outPath;
               };
@@ -72,8 +72,8 @@
               checks =
                 { }
                 // lib.optionalAttrs (!(existingChecks ? readme)) {
-                  readme = own.lib.internal.readmeGate (
-                    own.lib.internal.flakeArgs {
+                  readme = own.lib.internal.gate.readme (
+                    own.lib.internal.flake.args {
                       inherit pkgs;
                       checks = { };
                       flake = self;
@@ -85,14 +85,14 @@
                   pre-commit = preCommit;
                 }
                 // lib.optionalAttrs (!(existingChecks ? documentation)) {
-                  documentation = own.lib.internal.docsGate {
+                  documentation = own.lib.internal.gate.docs {
                     inherit pkgs;
                     flake = self;
                     root = self.outPath;
                   };
                 };
               devShells.default =
-                (generated.devShells.${system} or { }).default or (own.lib.internal.devShell {
+                (generated.devShells.${system} or { }).default or (own.lib.internal.shells.dev {
                   inherit pkgs;
                   preCommit = existingChecks.pre-commit or preCommit;
                 });
@@ -130,7 +130,9 @@
             // lib.mapAttrs (system: d: (generated.packages.${system} or { }) // d.packages) defaults;
         }
         // lib.optionalAttrs (generated ? lib) {
-          lib = own.lib.internal.buildDocumentedFunctions (builtins.removeAttrs generated.lib [ "internal" ]);
+          lib = own.lib.internal.buildDocumented.functions (
+            builtins.removeAttrs generated.lib [ "internal" ]
+          );
           libDeclarations = generated.lib;
         };
       own = blueprint {

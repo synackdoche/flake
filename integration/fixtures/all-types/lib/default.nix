@@ -20,14 +20,26 @@ in
       description = "Doubles its argument.";
     };
   };
-  types.wrap = {
-    __functor = _self: { value }: [ value ];
-    meta = {
-      args.value = {
-        description = "the value to wrap";
-        type = lib.types.anything;
+  types = {
+    strings.bla = {
+      __functor = _self: { x }: toString x;
+      meta = {
+        args.x = {
+          description = "the value to render";
+          type = lib.types.anything;
+        };
+        description = "Renders its argument as a string.";
       };
-      description = "Wraps a value in a list.";
+    };
+    wrap = {
+      __functor = _self: { value }: [ value ];
+      meta = {
+        args.value = {
+          description = "the value to wrap";
+          type = lib.types.anything;
+        };
+        description = "Wraps a value in a list.";
+      };
     };
   };
 }

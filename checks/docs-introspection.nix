@@ -5,7 +5,7 @@
 }:
 let
   inherit (inputs.nixpkgs) lib;
-  appPackage = inputs.self.lib.internal.documentApp {
+  appPackage = inputs.self.lib.internal.document.app {
     app = {
       meta.description = "probe";
       program = "/nix/store/x/bin/probe";
@@ -13,7 +13,7 @@ let
     };
     name = "probe";
   };
-  args = inputs.self.lib.internal.flakeArgs {
+  args = inputs.self.lib.internal.flake.args {
     inherit pkgs;
     checks = { };
     flake = inputs.self;
@@ -126,7 +126,7 @@ let
     {
       assertion =
         lib.any (lib.hasInfix "too short to say what this flake is for")
-          (inputs.self.lib.internal.documentation (args // { description = "too short"; })).problems;
+          (inputs.self.lib.internal.documentation.build (args // { description = "too short"; })).problems;
       message = "a flake description too short to state what the flake is for is reported";
     }
     {
@@ -139,10 +139,10 @@ let
     }
     {
       assertion = lib.any (lib.hasInfix "usage line carries no language label") (
-        inputs.self.lib.internal.documentationProblems {
+        inputs.self.lib.internal.documentation.problems {
           description = "A fixture description long enough to satisfy the purpose rule.";
           sections = [
-            (inputs.self.lib.internal.section {
+            (inputs.self.lib.internal.section.make {
               title = "unlabelled";
               type = "derivation";
               usage = "nix build .#thing";
@@ -154,10 +154,10 @@ let
     }
     {
       assertion = lib.any (lib.hasInfix "names no type, so what the thing is cannot be stated") (
-        inputs.self.lib.internal.documentationProblems {
+        inputs.self.lib.internal.documentation.problems {
           description = "A fixture description long enough to satisfy the purpose rule.";
           sections = [
-            (inputs.self.lib.internal.section {
+            (inputs.self.lib.internal.section.make {
               language = "sh";
               title = "untyped";
               usage = "nix build .#thing";
@@ -169,7 +169,7 @@ let
     }
     {
       assertion =
-        inputs.self.lib.internal.testsLine { inherit (testedPackage) tests; }
+        inputs.self.lib.internal.section.tests { inherit (testedPackage) tests; }
         == "[assertions](#assertions), undocumented";
       message = "a passthru.tests entry naming a documented check becomes a link to that check, and one naming nothing documented stays plain text";
     }
@@ -244,19 +244,20 @@ let
       message = "a NixOS configuration is documented with the attribute path that builds it";
     }
     {
-      assertion = functionPackage.usage == "lib.internal.mkSection { body, sections, title }";
+      assertion = functionPackage.usage == "lib.internal.section.group { body, sections, title }";
       message = "a function is documented under the namespace it is actually reachable from, with its argument shape";
     }
     {
       assertion =
-        indexOf "Library" (inputs.self.lib.internal.documentation (args // { library = { }; })).sections
-        == null;
+        indexOf "Library"
+          (inputs.self.lib.internal.documentation.build (args // { library = { }; })).sections == null;
       message = "a library that is entirely internal is documented in lib/README.md and adds no Library section to the index";
     }
     {
       assertion =
         let
-          section = indexOf "Library" (inputs.self.lib.internal.documentation argsWithPublicLibrary).sections;
+          section = indexOf "Library" (inputs.self.lib.internal.documentation.build argsWithPublicLibrary)
+          .sections;
         in
         section != null
         && lib.hasInfix "probeFn" section.body
@@ -299,7 +300,7 @@ let
     {
       assertion =
         let
-          probe = inputs.self.lib.internal.documentation (
+          probe = inputs.self.lib.internal.documentation.build (
             args
             // {
               packages = args.packages // {
@@ -347,7 +348,7 @@ let
     }
     {
       assertion =
-        (inputs.self.lib.internal.documentTemplate {
+        (inputs.self.lib.internal.document.template {
           name = "probe";
           template.description = "probe template";
         }).usage == "nix flake init -t .#probe";
@@ -427,7 +428,7 @@ let
     }
     {
       assertion =
-        (inputs.self.lib.internal.buildDocumentedFunction {
+        (inputs.self.lib.internal.buildDocumented.function {
           name = "readOptions";
           value = functionFixture.readOptions;
         })
@@ -439,7 +440,7 @@ let
     {
       assertion =
         !(builtins.tryEval (
-          (inputs.self.lib.internal.buildDocumentedFunction {
+          (inputs.self.lib.internal.buildDocumented.function {
             name = "readOptions";
             value = functionFixture.readOptions;
           })
@@ -454,7 +455,7 @@ let
         let
           inherit
             (
-              (inputs.self.lib.internal.documentation (
+              (inputs.self.lib.internal.documentation.build (
                 args
                 // {
                   internalLibrary.plain = x: x;
@@ -473,7 +474,7 @@ let
         let
           inherit
             (
-              (inputs.self.lib.internal.documentation (
+              (inputs.self.lib.internal.documentation.build (
                 args
                 // {
                   internalLibrary.plain = x: x;
@@ -489,7 +490,38 @@ let
     }
     {
       assertion =
-        inputs.self.lib.internal.flakeDescription { root = ../.; } == ''
+        let
+          built = inputs.self.lib.internal.buildDocumented.functions {
+            data = {
+              a = 1;
+              b.c = 2;
+            };
+          };
+        in
+        built.data == {
+          a = 1;
+          b.c = 2;
+        };
+      message = "an export that holds no declaration is published untouched, so a table of plain data keeps its shape";
+    }
+    {
+      assertion =
+        let
+          built = inputs.self.lib.internal.buildDocumented.functions cyclic;
+          cyclic = rec {
+            aSelf = cyclic;
+            zFn = {
+              __functor = _self: _: 9;
+              meta.description = "Returns nine.";
+            };
+          };
+        in
+        builtins.isFunction built.zFn && builtins.isAttrs built.aSelf;
+      message = "a self-referential export does not overflow the walk: the depth bound stops it and the cycle is left as it was";
+    }
+    {
+      assertion =
+        inputs.self.lib.internal.flake.description { root = ../.; } == ''
           SYNACKDOCHE GAMES - Base Flake
 
           shared formatter, pre-commit, docgate checks and flake scaffolding
@@ -497,7 +529,7 @@ let
       message = "the purpose shown in every document is read from the description the flake states about itself";
     }
   ];
-  broken = inputs.self.lib.internal.documentation (
+  broken = inputs.self.lib.internal.documentation.build (
     args
     // {
       description = "";
@@ -506,7 +538,7 @@ let
       };
     }
   );
-  buildOnlyPackage = inputs.self.lib.internal.documentPackage {
+  buildOnlyPackage = inputs.self.lib.internal.document.package {
     name = "buildable";
     package = pkgs.hello.overrideAttrs (old: {
       meta = builtins.removeAttrs (old.meta or { }) [ "mainProgram" ];
@@ -531,15 +563,15 @@ let
     "Library"
     "Checks"
   ];
-  configurationPackage = inputs.self.lib.internal.documentConfiguration {
+  configurationPackage = inputs.self.lib.internal.document.configuration {
     configuration = {
       config.networking.hostName = "host";
       pkgs.stdenv.hostPlatform.system = "x86_64-linux";
     };
     name = "host";
   };
-  documentation = inputs.self.lib.internal.documentation args;
-  documentedChecks = inputs.self.lib.internal.documentation (
+  documentation = inputs.self.lib.internal.documentation.build args;
+  documentedChecks = inputs.self.lib.internal.documentation.build (
     args
     // {
       checks.probe = pkgs.hello;
@@ -568,7 +600,7 @@ let
   };
   exampleDocs =
     name:
-    inputs.self.lib.internal.documentation (
+    inputs.self.lib.internal.documentation.build (
       args
       // {
         modules.probe = exampleModules.${name};
@@ -650,18 +682,18 @@ let
           }
         ];
       }).config.assertions;
-  formatterPackage = inputs.self.lib.internal.documentPackage {
+  formatterPackage = inputs.self.lib.internal.document.package {
     formatter = pkgs.hello;
     name = "formatter";
     package = pkgs.hello;
   };
   functionFixture = import ../fixtures/library/functions.nix { inherit lib; };
-  functionPackage = inputs.self.lib.internal.documentFunction {
-    fn = inputs.self.lib.internal.mkSection;
-    name = "mkSection";
-    namespace = "lib.internal";
+  functionPackage = inputs.self.lib.internal.document.function {
+    fn = inputs.self.lib.internal.section.group;
+    name = "group";
+    namespace = "lib.internal.section";
   };
-  importedFunction = inputs.self.lib.internal.documentFunction {
+  importedFunction = inputs.self.lib.internal.document.function {
     fn = functionFixture.second;
     name = "second";
     position = builtins.unsafeGetAttrPos "second" functionFixture;
@@ -670,64 +702,64 @@ let
   internalCalls = lib.filter (
     file: lib.hasInfix "lib.internal" (builtins.readFile file)
   ) templateSources;
-  internalFunction = inputs.self.lib.internal.documentFunction {
+  internalFunction = inputs.self.lib.internal.document.function {
     fn = functionFixture.third;
     internal = true;
     name = "third";
     position = builtins.unsafeGetAttrPos "third" functionFixture;
   };
-  internalProblems = inputs.self.lib.internal.documentationProblems {
+  internalProblems = inputs.self.lib.internal.documentation.problems {
     description = "A flake that exists to check the documentation rules themselves.";
     sections = [ internalFunction ];
   };
-  legacyFunction = inputs.self.lib.internal.documentFunction {
+  legacyFunction = inputs.self.lib.internal.document.function {
     fn = functionFixture.undocumented;
     name = "undocumented";
     position = builtins.unsafeGetAttrPos "undocumented" functionFixture;
   };
-  legacyProblems = inputs.self.lib.internal.documentationProblems {
+  legacyProblems = inputs.self.lib.internal.documentation.problems {
     description = "A flake that exists to check the documentation rules themselves.";
     sections = [ legacyFunction ];
   };
-  libraryFunctions = inputs.self.lib.internal.documentation (
+  libraryFunctions = inputs.self.lib.internal.documentation.build (
     args
     // {
       library = functionFixture;
     }
   );
-  libraryValues = inputs.self.lib.internal.documentation (
+  libraryValues = inputs.self.lib.internal.documentation.build (
     args
     // {
       library = valueFixture;
     }
   );
-  renderedNested = inputs.self.lib.internal.renderSection {
+  renderedNested = inputs.self.lib.internal.section.render {
     depth = 3;
-    s = inputs.self.lib.internal.section {
+    s = inputs.self.lib.internal.section.make {
       language = "sh";
       title = "probe";
       type = "template";
       usage = "nix run .#probe";
     };
   };
-  rfc145Function = inputs.self.lib.internal.documentFunction {
+  rfc145Function = inputs.self.lib.internal.document.function {
     fn = functionFixture.add;
     name = "add";
     position = builtins.unsafeGetAttrPos "add" functionFixture;
   };
-  runnablePackage = inputs.self.lib.internal.documentPackage {
+  runnablePackage = inputs.self.lib.internal.document.package {
     name = "runnable";
     package = pkgs.writeShellScriptBin "runnable" "true" // {
       meta.mainProgram = "runnable";
     };
 
   };
-  shadowedFunction = inputs.self.lib.internal.documentFunction {
+  shadowedFunction = inputs.self.lib.internal.document.function {
     fn = functionFixture.shadowed;
     name = "shadowed";
     position = builtins.unsafeGetAttrPos "shadowed" functionFixture;
   };
-  splitDocumentation = inputs.self.lib.internal.documentation (
+  splitDocumentation = inputs.self.lib.internal.documentation.build (
     args
     // {
       library.probe =
@@ -738,7 +770,7 @@ let
     }
   );
   templateSources = lib.filesystem.listFilesRecursive ../templates;
-  testedPackage = inputs.self.lib.internal.documentPackage {
+  testedPackage = inputs.self.lib.internal.document.package {
     checks = [ "assertions" ];
     name = "probe";
     package = pkgs.hello.overrideAttrs (old: {
@@ -760,7 +792,7 @@ let
       public = indexOf "Public" file.sections;
     in
     indexOf "probeValue" public.sections;
-  withReexports = inputs.self.lib.internal.documentation (
+  withReexports = inputs.self.lib.internal.documentation.build (
     args
     // {
       checks = args.checks // {

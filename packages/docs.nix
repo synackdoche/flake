@@ -4,7 +4,7 @@
   ...
 }:
 let
-  docs = inputs.self.lib.internal.docsApp { inherit pkgs; };
+  docs = inputs.self.lib.internal.docs.app { inherit pkgs; };
 in
 docs
 // {

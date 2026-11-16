@@ -75,7 +75,7 @@ let
       { assertions = assertionList; }
     ];
   };
-  good = inputs.self.lib.internal.mkAssertion {
+  good = inputs.self.lib.internal.message.assertion {
     at = [
       "toy"
       "good"
@@ -93,8 +93,8 @@ let
     assertion = false;
     message = "toy.good: boom\n  expected: something";
   };
-  problems = inputs.self.lib.internal.messageProblems;
-  wrongPath = inputs.self.lib.internal.mkAssertion {
+  problems = inputs.self.lib.internal.message.problems;
+  wrongPath = inputs.self.lib.internal.message.assertion {
     at = [
       "toy"
       "absent"

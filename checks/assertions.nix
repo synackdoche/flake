@@ -5,7 +5,7 @@
 }:
 let
   inherit (inputs.nixpkgs) lib;
-  assertion = inputs.self.lib.internal.mkAssertion {
+  assertion = inputs.self.lib.internal.message.assertion {
     at = [
       "toy"
       "good"

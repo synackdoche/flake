@@ -130,12 +130,17 @@ in
     grep -q '^## types$' lib/README.md || fail "all-types: lib/README.md documents no exported namespace"
     grep -q '^### wrap$' lib/README.md || fail "all-types: the exported namespace documents none of its members"
     grep -q 'lib.types.wrap' lib/README.md || fail "all-types: the namespace member has no qualified usage line"
+    grep -q '#### bla$' lib/README.md || fail "all-types: a declaration two namespaces deep is not documented"
+    grep -q 'lib.types.strings.bla' lib/README.md || fail "all-types: a declaration two namespaces deep has no qualified usage line"
     grep -q '\[lib/default.nix:.*\](default.nix)' lib/README.md || fail "all-types: the function has no source link relative to lib/README.md"
 
     nix eval --json "path:$PWD#lib.double" --apply 'f: builtins.isFunction f' 2>/dev/null | grep -q true || fail "all-types: a documented function is published as a plain lambda, so builtins.isFunction holds"
     nix eval --json "path:$PWD#lib.double" --apply 'f: f { x = 3; }' 2>/dev/null | grep -q 6 || fail "all-types: the published function returns what the declaration it documents returns"
     nix eval --json "path:$PWD#lib.answer" 2>/dev/null | grep -q 42 || fail "all-types: a documented value is published as the value it declares, not as the declaration that documents it"
     nix eval --json "path:$PWD#lib" --apply 'l: l ? internal' 2>/dev/null | grep -q false || fail "all-types: the published library still exports the internal surface"
+    nix eval --json "path:$PWD#lib.types.wrap" --apply 'f: builtins.isFunction f' 2>/dev/null | grep -q true || fail "all-types: a documented function nested in a published namespace is not built"
+    nix eval --json "path:$PWD#lib.types.strings.bla" --apply 'f: builtins.isFunction f' 2>/dev/null | grep -q true || fail "all-types: a documented function two namespaces deep is not built"
+    nix eval --json "path:$PWD#lib.types.strings.bla" --apply 'f: f { x = 7; }' 2>/dev/null | grep -q '"7"' || fail "all-types: the function two namespaces deep does not return what its declaration returns"
     if nix eval --json "path:$PWD#lib.double" --apply 'f: f { x = "no"; }' > /dev/null 2>&1; then fail "all-types: the published function accepts an argument its meta.args type rejects"; fi
     pass "a documented export is published as a checked function and a documented value as the value itself"
 

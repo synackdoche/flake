@@ -2,10 +2,12 @@
 
 SYNACKDOCHE GAMES - Base Flake — library
 
-## buildDocumentedFunction
+## buildDocumented
+
+### function
 
 ```nix
-lib.internal.buildDocumentedFunction { name, value }
+lib.internal.buildDocumented.function { name, value }
 ```
 
 *Type:* function
@@ -17,12 +19,12 @@ lib.internal.buildDocumentedFunction { name, value }
 
 Builds a real curried function from a documented declaration, so consumers get a plain lambda instead of a functor attribute set and every argument is checked against the type its meta.args entry states.
 
-*Source:* [lib/default.nix:106](default.nix)
+*Source:* [lib/default.nix:197](default.nix)
 
-## buildDocumentedFunctions
+### functions
 
 ```nix
-lib.internal.buildDocumentedFunctions { surface }
+lib.internal.buildDocumented.functions { surface }
 ```
 
 *Type:* function
@@ -31,14 +33,32 @@ lib.internal.buildDocumentedFunctions { surface }
 
 - `surface` (`*attribute set*`): attribute set of library exports to build, usually the flake's lib output
 
-Builds every documented declaration in a surface into a real function, leaving exports that declare no meta untouched.
+Builds every documented declaration in a surface into a real function, and recurses into a namespace of declarations to any depth, leaving exports that declare no meta and hold no declarations untouched.
 
-*Source:* [lib/default.nix:187](default.nix)
+*Source:* [lib/default.nix:213](default.nix)
 
-## descriptionsProblems
+### namespace
 
 ```nix
-lib.internal.descriptionsProblems { allowComponents, components, options }
+lib.internal.buildDocumented.namespace { value }
+```
+
+*Type:* function
+
+*Arguments:*
+
+- `value` (`*attribute set*`): an attribute set that may be a namespace of documented declarations
+
+Reports whether an attribute set is a namespace of declarations: at least one member, at any depth, is a declaration carrying meta or __functor.
+
+*Source:* [lib/default.nix:223](default.nix)
+
+## descriptions
+
+### problems
+
+```nix
+lib.internal.descriptions.problems { allowComponents, components, options }
 ```
 
 *Type:* function
@@ -51,29 +71,34 @@ lib.internal.descriptionsProblems { allowComponents, components, options }
 
 Reports descriptions that are missing, too short to state a contract, repeated, or that name another component of the flake.
 
-*Source:* [lib/default.nix:209](default.nix)
+*Source:* [lib/default.nix:288](default.nix)
 
-## devShell
+## dev
+
+### preCommit
 
 ```nix
-lib.internal.devShell { pkgs, preCommit }
+lib.internal.dev.preCommit { extraHooks, pkgs, src }
 ```
 
 *Type:* function
 
 *Arguments:*
 
-- `pkgs` (`*attribute set*`): nixpkgs package set the shell is built with
-- `preCommit` (`*attribute set*`): pre-commit check whose packages and hook the shell exposes
+- `extraHooks` (`*attribute set*`): additional git-hooks definitions merged into the hook set
+- `pkgs` (`*attribute set*`): nixpkgs package set the hooks are taken from
+- `src` (`*absolute path*`): the tree the hooks are run against
 
-Shell environment carrying the formatter's packages and its shell hook.
+Runs treefmt through this flake's formatter, plus deadnix, statix and pedantix.
 
-*Source:* [lib/default.nix:279](default.nix)
+*Source:* [lib/default.nix:355](default.nix)
 
-## docsApp
+## docs
+
+### app
 
 ```nix
-lib.internal.docsApp { pkgs }
+lib.internal.docs.app { pkgs }
 ```
 
 *Type:* function
@@ -84,31 +109,12 @@ lib.internal.docsApp { pkgs }
 
 Writes one generated README into the working tree, for the repository or for one named module.
 
-*Source:* [lib/default.nix:301](default.nix)
+*Source:* [lib/default.nix:505](default.nix)
 
-## docsGate
-
-```nix
-lib.internal.docsGate { checks, flake, pkgs, root }
-```
-
-*Type:* function
-
-*Arguments:*
-
-- `checks` (`*attribute set*`): checks to document, none by default, because a check cannot enumerate the checks without forcing itself
-- `flake` (`*attribute set*`): the flake whose documentation is inspected
-- `pkgs` (`*attribute set*`): nixpkgs package set for the system being documented
-- `root` (`*absolute path*`): source tree the documentation describes, the store copy of the flake by default
-
-Fails evaluation when the documentation of a flake is incomplete, so a repository can make its documentation a check instead of a convention.
-
-*Source:* [lib/default.nix:386](default.nix)
-
-## docsTree
+### tree
 
 ```nix
-lib.internal.docsTree { apps, checks, configurations, description, formatter, internalLibrary, library, modules, packages, pkgs, requireInternalDocumentation, root, system, templates, url }
+lib.internal.docs.tree { apps, checks, configurations, description, formatter, internalLibrary, library, modules, packages, pkgs, requireInternalDocumentation, root, system, templates, url }
 ```
 
 *Type:* function
@@ -133,12 +139,14 @@ lib.internal.docsTree { apps, checks, configurations, description, formatter, in
 
 Builds the documentation tree: the repository README plus one README per output kind, ready to install.
 
-*Source:* [lib/default.nix:443](default.nix)
+*Source:* [lib/default.nix:515](default.nix)
 
-## documentApp
+## document
+
+### app
 
 ```nix
-lib.internal.documentApp { app, name }
+lib.internal.document.app { app, name }
 ```
 
 *Type:* function
@@ -150,12 +158,12 @@ lib.internal.documentApp { app, name }
 
 Documents one app: how to run it and what its meta.description says.
 
-*Source:* [lib/default.nix:561](default.nix)
+*Source:* [lib/default.nix:761](default.nix)
 
-## documentCheck
+### check
 
 ```nix
-lib.internal.documentCheck { check, name, system }
+lib.internal.document.check { check, name, system }
 ```
 
 *Type:* function
@@ -168,12 +176,12 @@ lib.internal.documentCheck { check, name, system }
 
 Documents one check: how to build it and the assertions it makes.
 
-*Source:* [lib/default.nix:586](default.nix)
+*Source:* [lib/default.nix:777](default.nix)
 
-## documentConfiguration
+### configuration
 
 ```nix
-lib.internal.documentConfiguration { configuration, name, source }
+lib.internal.document.configuration { configuration, name, source }
 ```
 
 *Type:* function
@@ -186,12 +194,12 @@ lib.internal.documentConfiguration { configuration, name, source }
 
 Documents one NixOS configuration: how to build it, the description the host states for itself and its host name and system.
 
-*Source:* [lib/default.nix:619](default.nix)
+*Source:* [lib/default.nix:797](default.nix)
 
-## documentFunction
+### function
 
 ```nix
-lib.internal.documentFunction { fn, internal, name, namespace, position, sections }
+lib.internal.document.function { fn, internal, name, namespace, position, sections }
 ```
 
 *Type:* function
@@ -207,12 +215,12 @@ lib.internal.documentFunction { fn, internal, name, namespace, position, section
 
 Documents one exported function from the metadata it declares: how to call it, what it is for and what each argument is.
 
-*Source:* [lib/default.nix:675](default.nix)
+*Source:* [lib/default.nix:817](default.nix)
 
-## documentPackage
+### package
 
 ```nix
-lib.internal.documentPackage { checks, formatter, name, package }
+lib.internal.document.package { checks, formatter, name, package }
 ```
 
 *Type:* function
@@ -226,12 +234,12 @@ lib.internal.documentPackage { checks, formatter, name, package }
 
 Documents one package: how to run it when it has a mainProgram, how to build it otherwise, what its meta.description says, and which checks it is tested by.
 
-*Source:* [lib/default.nix:758](default.nix)
+*Source:* [lib/default.nix:849](default.nix)
 
-## documentTemplate
+### template
 
 ```nix
-lib.internal.documentTemplate { name, template, url }
+lib.internal.document.template { name, template, url }
 ```
 
 *Type:* function
@@ -244,12 +252,12 @@ lib.internal.documentTemplate { name, template, url }
 
 Documents one template: how to initialise a flake from it and the description its flake states.
 
-*Source:* [lib/default.nix:806](default.nix)
+*Source:* [lib/default.nix:873](default.nix)
 
-## documentValue
+### value
 
 ```nix
-lib.internal.documentValue { internal, name, namespace, position, sections, value }
+lib.internal.document.value { internal, name, namespace, position, sections, value }
 ```
 
 *Type:* function
@@ -265,12 +273,14 @@ lib.internal.documentValue { internal, name, namespace, position, sections, valu
 
 Documents one exported value from the metadata it declares: what it is, the type label it states and where it is defined.
 
-*Source:* [lib/default.nix:839](default.nix)
+*Source:* [lib/default.nix:893](default.nix)
 
 ## documentation
 
+### build
+
 ```nix
-lib.internal.documentation { apps, checks, configurations, description, formatter, internalLibrary, library, modules, packages, pkgs, requireInternalDocumentation, root, system, templates, url }
+lib.internal.documentation.build { apps, checks, configurations, description, formatter, internalLibrary, library, modules, packages, pkgs, requireInternalDocumentation, root, system, templates, url }
 ```
 
 *Type:* function
@@ -295,12 +305,12 @@ lib.internal.documentation { apps, checks, configurations, description, formatte
 
 Builds the documentation of a flake: one document per group of outputs, the modules, and the root index that links them.
 
-*Source:* [lib/default.nix:894](default.nix)
+*Source:* [lib/default.nix:1434](default.nix)
 
-## documentationProblems
+### problems
 
 ```nix
-lib.internal.documentationProblems { description, requireInternalDocumentation, sections }
+lib.internal.documentation.problems { description, requireInternalDocumentation, sections }
 ```
 
 *Type:* function
@@ -313,12 +323,14 @@ lib.internal.documentationProblems { description, requireInternalDocumentation, 
 
 Reports every way a rendered document falls short of being usable: purpose unstated, usage missing, arguments untyped.
 
-*Source:* [lib/default.nix:1382](default.nix)
+*Source:* [lib/default.nix:1502](default.nix)
 
-## flakeArgs
+## flake
+
+### args
 
 ```nix
-lib.internal.flakeArgs { checks, description, flake, pkgs, root }
+lib.internal.flake.args { checks, description, flake, pkgs, root }
 ```
 
 *Type:* function
@@ -333,12 +345,12 @@ lib.internal.flakeArgs { checks, description, flake, pkgs, root }
 
 Derives the arguments that document a flake, from the flake itself, so a repository states nothing about its own documentation.
 
-*Source:* [lib/default.nix:1476](default.nix)
+*Source:* [lib/default.nix:1606](default.nix)
 
-## flakeDescription
+### description
 
 ```nix
-lib.internal.flakeDescription { root }
+lib.internal.flake.description { root }
 ```
 
 *Type:* function
@@ -349,85 +361,33 @@ lib.internal.flakeDescription { root }
 
 Reads the description a flake states about itself, which is the only statement of what the flake is for.
 
-*Source:* [lib/default.nix:1532](default.nix)
-
-## messageProblems
-
-```nix
-lib.internal.messageProblems { assertions, options }
-```
-
-*Type:* function
-
-*Arguments:*
-
-- `assertions` (`*list of (attribute set)*`): list of { assertion, message } records whose messages are inspected
-- `options` (`*attribute set*`): evaluated option set the message paths are resolved against
-
-Reports assertion messages that do not name a declared option, or that omit the expected value and the fix.
-
-*Source:* [lib/default.nix:1593](default.nix)
-
-## mkAssertion
-
-```nix
-lib.internal.mkAssertion { at, condition, expected, fix, violation }
-```
-
-*Type:* function
-
-*Arguments:*
-
-- `at` (`*list of string*`): list of attribute names naming the option the assertion is about
-- `condition` (`*boolean*`): the property being asserted, true when it holds
-- `expected` (`*string*`): sentence saying what the configuration should look like instead
-- `fix` (`*string*`): sentence saying how to make it look that way
-- `violation` (`*string*`): sentence saying what is wrong when the condition is false
-
-Builds an assertion record whose message states the violation, what was expected and how to fix it.
-
 *Source:* [lib/default.nix:1634](default.nix)
 
-## mkSection
+## gate
+
+### docs
 
 ```nix
-lib.internal.mkSection { body, sections, title }
+lib.internal.gate.docs { checks, flake, pkgs, root }
 ```
 
 *Type:* function
 
 *Arguments:*
 
-- `body` (`*null or string*`): markdown emitted under the title instead of child headings, null when there is none
-- `sections` (`*list of (attribute set)*`): child sections, rendered one heading level deeper, empty when the group only holds prose
-- `title` (`*string*`): heading text of the group
+- `checks` (`*attribute set*`): checks to document, none by default, because a check cannot enumerate the checks without forcing itself
+- `flake` (`*attribute set*`): the flake whose documentation is inspected
+- `pkgs` (`*attribute set*`): nixpkgs package set for the system being documented
+- `root` (`*absolute path*`): source tree the documentation describes, the store copy of the flake by default
 
-Groups child sections under one title, for a part of the document that is itself not a usable thing.
+Fails evaluation when the documentation of a flake is incomplete, so a repository can make its documentation a check instead of a convention.
 
-*Source:* [lib/default.nix:1678](default.nix)
+*Source:* [lib/default.nix:1797](default.nix)
 
-## preCommit
-
-```nix
-lib.internal.preCommit { extraHooks, pkgs, src }
-```
-
-*Type:* function
-
-*Arguments:*
-
-- `extraHooks` (`*attribute set*`): additional git-hooks definitions merged into the hook set
-- `pkgs` (`*attribute set*`): nixpkgs package set the hooks are taken from
-- `src` (`*absolute path*`): the tree the hooks are run against
-
-Runs treefmt through this flake's formatter, plus deadnix, statix and pedantix.
-
-*Source:* [lib/default.nix:1717](default.nix)
-
-## readmeGate
+### readme
 
 ```nix
-lib.internal.readmeGate { apps, checks, configurations, description, formatter, internalLibrary, library, modules, packages, pkgs, requireInternalDocumentation, root, system, templates, url }
+lib.internal.gate.readme { apps, checks, configurations, description, formatter, internalLibrary, library, modules, packages, pkgs, requireInternalDocumentation, root, system, templates, url }
 ```
 
 *Type:* function
@@ -452,30 +412,71 @@ lib.internal.readmeGate { apps, checks, configurations, description, formatter, 
 
 Fails when a committed README differs from the generated documentation, or when README.md and checks/README.md disagree about a check.
 
-*Source:* [lib/default.nix:1779](default.nix)
+*Source:* [lib/default.nix:1821](default.nix)
 
-## renderSection
+## message
+
+### assertion
 
 ```nix
-lib.internal.renderSection { depth, fromDir, s }
+lib.internal.message.assertion { at, condition, expected, fix, violation }
 ```
 
 *Type:* function
 
 *Arguments:*
 
-- `depth` (`*signed integer*`): heading level of the section, 2 for a top-level section of a document
-- `fromDir` (`*string*`): directory the rendered document lives in, so source links resolve relative to it
-- `s` (`*attribute set*`): the section to render
+- `at` (`*list of string*`): list of attribute names naming the option the assertion is about
+- `condition` (`*boolean*`): the property being asserted, true when it holds
+- `expected` (`*string*`): sentence saying what the configuration should look like instead
+- `fix` (`*string*`): sentence saying how to make it look that way
+- `violation` (`*string*`): sentence saying what is wrong when the condition is false
 
-Renders a list of sections into a README derivation.
+Builds an assertion record whose message states the violation, what was expected and how to fix it.
 
-*Source:* [lib/default.nix:1960](default.nix)
+*Source:* [lib/default.nix:1935](default.nix)
+
+### problems
+
+```nix
+lib.internal.message.problems { assertions, options }
+```
+
+*Type:* function
+
+*Arguments:*
+
+- `assertions` (`*list of (attribute set)*`): list of { assertion, message } records whose messages are inspected
+- `options` (`*attribute set*`): evaluated option set the message paths are resolved against
+
+Reports assertion messages that do not name a declared option, or that omit the expected value and the fix.
+
+*Source:* [lib/default.nix:1963](default.nix)
 
 ## section
 
+### group
+
 ```nix
-lib.internal.section { arguments, body, bodyFile, description, documented, internal, kind, language, problems, sections, source, tests, title, type, usage }
+lib.internal.section.group { body, sections, title }
+```
+
+*Type:* function
+
+*Arguments:*
+
+- `body` (`*null or string*`): markdown emitted under the title instead of child headings, null when there is none
+- `sections` (`*list of (attribute set)*`): child sections, rendered one heading level deeper, empty when the group only holds prose
+- `title` (`*string*`): heading text of the group
+
+Groups child sections under one title, for a part of the document that is itself not a usable thing.
+
+*Source:* [lib/default.nix:2139](default.nix)
+
+### make
+
+```nix
+lib.internal.section.make { arguments, body, bodyFile, description, documented, internal, kind, language, problems, sections, source, tests, title, type, usage }
 ```
 
 *Type:* function
@@ -500,12 +501,30 @@ lib.internal.section { arguments, body, bodyFile, description, documented, inter
 
 One documented thing: what it is, how to call or import it, what its arguments are and any child sections.
 
-*Source:* [lib/default.nix:2048](default.nix)
+*Source:* [lib/default.nix:2159](default.nix)
 
-## testsLine
+### render
 
 ```nix
-lib.internal.testsLine { tests }
+lib.internal.section.render { depth, fromDir, s }
+```
+
+*Type:* function
+
+*Arguments:*
+
+- `depth` (`*signed integer*`): heading level of the section, 2 for a top-level section of a document
+- `fromDir` (`*string*`): directory the rendered document lives in, so source links resolve relative to it
+- `s` (`*attribute set*`): the section to render
+
+Renders a list of sections into a README derivation.
+
+*Source:* [lib/default.nix:2227](default.nix)
+
+### tests
+
+```nix
+lib.internal.section.tests { tests }
 ```
 
 *Type:* function
@@ -516,12 +535,12 @@ lib.internal.testsLine { tests }
 
 Renders the test links of a section: a markdown link when the check is documented, plain text when it is not.
 
-*Source:* [lib/default.nix:2153](default.nix)
+*Source:* [lib/default.nix:2247](default.nix)
 
-## writeDocumentation
+### write
 
 ```nix
-lib.internal.writeDocumentation { description, fromDir, name, pkgs, sections }
+lib.internal.section.write { description, fromDir, name, pkgs, sections }
 ```
 
 *Type:* function
@@ -536,5 +555,24 @@ lib.internal.writeDocumentation { description, fromDir, name, pkgs, sections }
 
 Writes one document: a heading, the statement of purpose, and the sections rendered in order.
 
-*Source:* [lib/default.nix:2163](default.nix)
+*Source:* [lib/default.nix:2257](default.nix)
+
+## shells
+
+### dev
+
+```nix
+lib.internal.shells.dev { pkgs, preCommit }
+```
+
+*Type:* function
+
+*Arguments:*
+
+- `pkgs` (`*attribute set*`): nixpkgs package set the shell is built with
+- `preCommit` (`*attribute set*`): pre-commit check whose packages and hook the shell exposes
+
+Shell environment carrying the formatter's packages and its shell hook.
+
+*Source:* [lib/default.nix:2296](default.nix)
 

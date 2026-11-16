@@ -74,7 +74,7 @@ let
       module,
       allowComponents ? [ ],
     }:
-    inputs.self.lib.internal.descriptionsProblems {
+    inputs.self.lib.internal.descriptions.problems {
       inherit allowComponents;
       inherit ((lib.evalModules { modules = [ module ]; })) options;
       components = builtins.attrNames inputs;

@@ -1,28 +1,18 @@
 { inputs, ... }:
 let
   contributed =
-    modules: moduleName:
+    pkgs: modules: moduleName:
     let
-      added = lib.unique (
-        lib.subtractLists (builtins.attrNames baseline) (builtins.attrNames evaluated.options)
-        ++ lib.filter declaredBy (builtins.attrNames evaluated.options)
-      );
       baseline =
         (lib.evalModules {
           modules = [
             harness
             metaOptions
           ];
+          specialArgs = { inherit pkgs; };
         }).options;
       declaredBy =
-        name:
-        let
-          leaves = lib.collect (leaf: leaf ? _type && leaf._type == "option") evaluated.options.${name};
-        in
-        lib.any (
-          leaf:
-          lib.any (declared: lib.any (file: toString declared == file) moduleFiles) (leaf.declarations or [ ])
-        ) leaves;
+        option: lib.any (declared: lib.elem (toString declared) moduleFiles) (option.declarations or [ ]);
       declaresMeta =
         let
           probed = builtins.tryEval (
@@ -31,6 +21,7 @@ let
                 harness
                 modules.${moduleName}
               ];
+              specialArgs = { inherit pkgs; };
             }).options
               ? meta.description
           );
@@ -38,17 +29,18 @@ let
         probed.success && probed.value;
       evaluated = lib.evalModules {
         modules = modulesFor;
+        specialArgs = { inherit pkgs; };
       };
-      moduleFiles =
-        let
-          value = modules.${moduleName};
-        in
+      filesOf =
+        value:
         if builtins.isString value || builtins.isPath value then
           [ (toString value) ]
-        else if builtins.isAttrs value && value ? imports then
-          lib.filter (entry: builtins.isString entry || builtins.isPath entry) (lib.flatten value.imports)
+        else if builtins.isAttrs value then
+          lib.optional (value ? _file) (toString value._file)
+          ++ lib.concatMap filesOf (lib.toList (value.imports or [ ]))
         else
           [ ];
+      moduleFiles = lib.remove (toString metaOptions) (filesOf modules.${moduleName});
       modulesFor = [ harness ] ++ lib.optional (!declaresMeta) metaOptions ++ [ modules.${moduleName} ];
       ownMeta =
         attribute:
@@ -66,6 +58,28 @@ let
           (lib.head entries).value
         else
           null;
+      scoped = scopedIn evaluated.options baseline;
+      scopedIn =
+        tree: inherited:
+        lib.listToAttrs (
+          lib.concatMap (
+            name:
+            let
+              above = inherited.${name} or null;
+              value = tree.${name};
+            in
+            if value ? _type && value._type == "option" then
+              lib.optional (above == null || declaredBy value) { inherit name value; }
+            else
+              let
+                kept = scopedIn value (if above == null then { } else above);
+              in
+              lib.optional (kept != { }) {
+                inherit name;
+                value = kept;
+              }
+          ) (builtins.attrNames tree)
+        );
     in
     {
       inherit modulesFor;
@@ -75,8 +89,8 @@ let
         in
         if described == null then "" else described;
       example = ownMeta "example";
-      names = added;
-      options = lib.genAttrs added (optionName: evaluated.options.${optionName});
+      names = builtins.attrNames scoped;
+      options = scoped;
     };
   descriptionBody =
     description:
@@ -942,6 +956,7 @@ let
             url ? "",
           }:
           let
+            contributedFor = contributed pkgs;
             documentSurface =
               {
                 namespace,
@@ -1225,7 +1240,7 @@ let
             moduleSection =
               moduleName:
               let
-                info = contributed modules moduleName;
+                info = contributedFor modules moduleName;
                 inspectExample =
                   if info.example == null || !(builtins.isAttrs info.example) then
                     [ ]
@@ -1233,6 +1248,7 @@ let
                     let
                       checked = lib.evalModules {
                         modules = info.modulesFor ++ [ { config = info.example; } ];
+                        specialArgs = { inherit pkgs; };
                       };
                       failures = lib.filter (
                         path: !(builtins.tryEval (lib.attrByPath path null checked.config)).success
@@ -2337,22 +2353,7 @@ let
     );
   harness = {
     config.networking.domain = "test";
-    options = {
-      assertions = lib.mkOption {
-        default = [ ];
-        internal = true;
-        type = lib.types.listOf lib.types.unspecified;
-      };
-      networking.domain = lib.mkOption {
-        description = "Domain the documentation harness uses to derive host names.";
-        type = lib.types.str;
-      };
-      warnings = lib.mkOption {
-        default = [ ];
-        internal = true;
-        type = lib.types.listOf lib.types.unspecified;
-      };
-    };
+    imports = import (inputs.nixpkgs.outPath + "/nixos/modules/module-list.nix");
   };
   lib = inputs.nixpkgs.lib;
   metaOptions = ../lib/meta-options.nix;
@@ -2395,7 +2396,7 @@ let
             if option ? defaultText then
               {
                 success = true;
-                value = option.defaultText;
+                value = if builtins.isAttrs option.defaultText then option.defaultText.text else option.defaultText;
               }
             else if option ? default then
               builtins.tryEval (lib.generators.toPretty { } option.default)

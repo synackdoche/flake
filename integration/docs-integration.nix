@@ -120,6 +120,14 @@ in
     grep -q '#### first\.enabled' modules/README.md || fail "all-types: the composed module does not document the options it imports"
     grep -q '#### composed\.enabled' modules/README.md || fail "all-types: the composed module does not document its own options"
 
+    grep -q '^## wired$' modules/README.md || fail "all-types: modules/README.md does not document a module that defines a systemd unit"
+    grep -A10 '^## wired$' modules/README.md | grep -q 'Runs a unit from the certificate list the NixOS module system provides\.' || fail "all-types: a module that defines a systemd unit is not documented with its own description"
+    grep -q '#### wired\.certificates$' modules/README.md || fail "all-types: the option a module defaults from a NixOS option is not documented"
+    grep -q 'security\.pki\.certificateFiles' modules/README.md || fail "all-types: the defaultText a module states for that option is not rendered"
+    grep -q '#### systemd\.' modules/README.md && fail "all-types: the documentation lists NixOS options a module merely defines"
+    grep -q '#### security\.' modules/README.md && fail "all-types: the documentation lists NixOS options a module merely reads"
+    pass "a module that defines a systemd unit from a NixOS option is documented with its own options only"
+
     grep -q '^## hello$' packages/README.md || fail "all-types: packages/README.md documents no hello package"
     grep -q '\[packages/hello.nix\](hello.nix)' packages/README.md || fail "all-types: the package has no source link relative to packages/README.md"
 

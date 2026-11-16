@@ -38,6 +38,14 @@ let
       message = "a module that sets no meta.example renders no example section";
     }
     {
+      assertion = map (section: section.title) (moduleEntry "systemdUnit").sections == [ "Options" ];
+      message = "a module that defines a systemd unit from a NixOS option is documented with its own options instead of failing to evaluate";
+    }
+    {
+      assertion = indexOf "Options" (moduleEntry "wiringOnly").sections == null;
+      message = "a module that declares no options of its own documents no options, rather than the NixOS options it defines";
+    }
+    {
       assertion =
         valueSection.type == "Int"
         && valueSection.kind == "value"
@@ -622,6 +630,32 @@ let
           type = lib.types.bool;
         };
       };
+    systemdUnit =
+      { lib, config, ... }:
+      {
+        config = lib.mkIf config.probeUnit.enable {
+          systemd.services.probe-unit = {
+            serviceConfig.ExecStart = lib.escapeShellArgs (
+              [ "probe" ] ++ map toString config.probeUnit.certificates
+            );
+            wantedBy = [ "multi-user.target" ];
+          };
+        };
+        meta.description = "Runs a unit from the certificate list the NixOS module system provides.";
+        options.probeUnit = {
+          certificates = lib.mkOption {
+            default = config.security.pki.certificateFiles;
+            defaultText = lib.literalExpression "config.security.pki.certificateFiles";
+            description = "Certificates the unit starts with, defaulted from the NixOS option that owns them.";
+            type = lib.types.listOf lib.types.path;
+          };
+          enable = lib.mkEnableOption "the probe unit";
+        };
+      };
+    wiringOnly = _: {
+      config.systemd.services.probe-wiring.serviceConfig.ExecStart = "probe";
+      meta.description = "Defines a NixOS unit without declaring an option of its own.";
+    };
     withExample =
       { lib, ... }:
       {
@@ -644,15 +678,7 @@ let
         };
       };
   };
-  exampleSection =
-    name:
-    let
-      file = lib.findFirst (
-        candidate: indexOf "probe" (candidate.sections or [ ]) != null
-      ) null (exampleDocs name).files;
-      moduleEntry = indexOf "probe" file.sections;
-    in
-    indexOf "example" moduleEntry.sections;
+  exampleSection = name: indexOf "example" (moduleEntry name).sections;
   failingAssertion =
     builtins.tryEval
       (lib.evalModules {
@@ -733,6 +759,14 @@ let
       library = valueFixture;
     }
   );
+  moduleEntry =
+    name:
+    let
+      file = lib.findFirst (
+        candidate: indexOf "probe" (candidate.sections or [ ]) != null
+      ) null (exampleDocs name).files;
+    in
+    indexOf "probe" file.sections;
   renderedNested = inputs.self.lib.internal.section.render {
     depth = 3;
     s = inputs.self.lib.internal.section.make {

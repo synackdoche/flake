@@ -301,6 +301,11 @@ in
     echo "$packages" | grep -q '"docs"' || fail "the callable flake does not mix in the docs package: $packages"
     nix eval ".#formatter.$system" --apply 'd: d ? outPath' 2>/dev/null \
       || fail "the callable flake does not mix in the default formatter"
+    clientFormatterDescription=$(nix eval --raw ".#formatter.$system.meta.description" 2>/dev/null) \
+      || fail "the client flake's formatter states no description"
+    echo "$clientFormatterDescription" | grep -q 'canonical configuration' \
+      || fail "a client without formatter.nix does not format with this flake's canonical configuration: $clientFormatterDescription"
+    pass "a client that states no formatter.nix formats with this flake's canonical configuration, not a second one"
     nix eval ".#devShells.$system.default" --apply 'd: d ? outPath' 2>/dev/null \
       || fail "the callable flake does not mix in the default devshell"
     checks=$(nix eval --json ".#checks.$system" --apply 'builtins.attrNames') \

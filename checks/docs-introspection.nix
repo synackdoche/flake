@@ -39,6 +39,64 @@ let
     }
     {
       assertion =
+        valueSection.type == "Int"
+        && valueSection.kind == "value"
+        && lib.hasSuffix "second.nix" valueSection.source.file
+        && valueSection.description == "The answer to everything.";
+      message = "an exported value is documented with the type its doc block states and a link to the file it is defined in";
+    }
+    {
+      assertion = lib.any (
+        problem: lib.hasInfix "probeUntyped: names no type" problem
+      ) libraryValues.problems;
+      message = "a documented value that states no type is reported as naming no type";
+    }
+    {
+      assertion = lib.any (
+        problem: lib.hasInfix "probeBare: is an exported value with no documentation block" problem
+      ) libraryValues.problems;
+      message = "an exported value with no doc block is reported as undocumented";
+    }
+    {
+      assertion =
+        let
+          file = lib.findFirst (
+            candidate: indexOf "Public" (candidate.sections or [ ]) != null
+          ) null libraryValues.files;
+          namespace = indexOf "types" public.sections;
+          nested = indexOf "nested" namespace.sections;
+          public = indexOf "Public" file.sections;
+        in
+        nested.kind == "function" && lib.hasInfix "lib.types.nested" nested.usage;
+      message = "an exported namespace is documented with its members nested under it, each under its qualified name";
+    }
+    {
+      assertion =
+        let
+          file = lib.findFirst (
+            candidate: indexOf "Public" (candidate.sections or [ ]) != null
+          ) null libraryValues.files;
+          public = indexOf "Public" file.sections;
+          shape = indexOf "shape" public.sections;
+        in
+        shape != null && map (child: child.title) shape.sections == [ "Options" ];
+      message = "an exported option type is documented with the shape of the options it defines";
+    }
+    {
+      assertion =
+        let
+          file = lib.findFirst (
+            candidate: indexOf "Public" (candidate.sections or [ ]) != null
+          ) null libraryValues.files;
+          options = indexOf "Options" shape.sections;
+          public = indexOf "Public" file.sections;
+          shape = indexOf "shape" public.sections;
+        in
+        options != null && options.bodyFile != null && options.usage == "";
+      message = "the option type's shape is rendered from the base's own options renderer";
+    }
+    {
+      assertion =
         let
           entry = indexOf "probe" file.sections;
           file = lib.findFirst (
@@ -320,8 +378,12 @@ let
       message = "an RFC-145 /** doc comment with a definition-list and a # Type signature is read, its argument types filled positionally from the signature";
     }
     {
-      assertion = internalFunction.documented && internalProblems == [ ];
-      message = "an internal function may leave its arguments undocumented without being reported, while its doc block is still used";
+      assertion =
+        internalFunction.documented
+        && lib.any (
+          problem: lib.hasInfix "argument 'value' has no documented type" problem
+        ) internalProblems;
+      message = "an internal function's undocumented argument is reported too, because the internal surface is published and read like any other";
     }
     {
       assertion =
@@ -571,9 +633,66 @@ let
         : The second number
       */
       add = a: b: a + b;
+
+      /**
+        The answer to everything.
+
+        # Type
+
+        Int
+      */
+      probeValue = 42;
+
+      /**
+        A value whose documentation states no type.
+      */
+      probeUntyped = 0;
+
+      probeBare = 0;
+
+      /**
+        Returns the nested value unchanged.
+
+        # Type
+
+        nested :: { value :: Any } -> Any
+
+        # Arguments
+
+        - `value`: the value to return
+      */
+      nested = { value }: value;
+
+      /**
+        Option type whose shape the documentation renders.
+
+        # Type
+
+        OptionType
+      */
+      shape = null;
     }
     EOF
   '';
+  libraryValues = inputs.self.lib.internal.documentation (
+    args
+    // {
+      library = {
+        probeBare = 0;
+        probeUntyped = 0;
+        probeValue = 42;
+        shape = lib.types.submodule {
+          options.probe.enabled = lib.mkOption {
+            default = false;
+            description = "Whether the probed option is enabled.";
+            type = lib.types.bool;
+          };
+        };
+        types.nested = { value }: value;
+      };
+      librarySource = libraryFixture + "/lib";
+    }
+  );
   renderedNested = inputs.self.lib.internal.renderSection {
     depth = 3;
     s = inputs.self.lib.internal.section {
@@ -619,6 +738,14 @@ let
     });
 
   };
+  valueSection =
+    let
+      file = lib.findFirst (
+        candidate: indexOf "Public" (candidate.sections or [ ]) != null
+      ) null libraryValues.files;
+      public = indexOf "Public" file.sections;
+    in
+    indexOf "probeValue" public.sections;
   withReexports = inputs.self.lib.internal.documentation (
     args
     // {

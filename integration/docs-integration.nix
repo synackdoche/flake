@@ -124,6 +124,12 @@ in
     grep -q '\[packages/hello.nix\](hello.nix)' packages/README.md || fail "all-types: the package has no source link relative to packages/README.md"
 
     grep -q '^## double$' lib/README.md || fail "all-types: lib/README.md documents no double function"
+    grep -q '^## answer$' lib/README.md || fail "all-types: lib/README.md documents no exported value"
+    grep -A8 '^## answer$' lib/README.md | grep -q 'Int' || fail "all-types: the exported value is documented without the type its doc block states"
+    grep -q '\[lib/default.nix:.*\](default.nix)' lib/README.md || fail "all-types: the exported value has no source link relative to lib/README.md"
+    grep -q '^## types$' lib/README.md || fail "all-types: lib/README.md documents no exported namespace"
+    grep -q '^### wrap$' lib/README.md || fail "all-types: the exported namespace documents none of its members"
+    grep -q 'lib.types.wrap' lib/README.md || fail "all-types: the namespace member has no qualified usage line"
     grep -q '\[lib/default.nix:.*\](default.nix)' lib/README.md || fail "all-types: the function has no source link relative to lib/README.md"
 
     [ -f systems/README.md ] || fail "all-types: no systems/README.md"

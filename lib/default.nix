@@ -265,6 +265,21 @@ let
             file = lib.removePrefix (toString source + "/") (toString file);
             line = index - lib.elemAt offsets fileIndex + 1;
           };
+      typeOf =
+        name:
+        let
+          afterType = dropWhile (line: line != "# Type") (docLines name);
+          declared = lib.findFirst (line: line != "" && !(lib.hasPrefix "# " line)) null (
+            lib.drop 1 afterType
+          );
+          parts = if declared == null then [ ] else lib.splitString "::" declared;
+        in
+        if declared == null then
+          ""
+        else if lib.length parts > 1 then
+          lib.trim (lib.concatStringsSep "::" (lib.tail parts))
+        else
+          lib.trim declared;
     in
     {
       inherit
@@ -275,6 +290,7 @@ let
         hashCommented
         hasDocBlock
         sourceLocation
+        typeOf
         ;
     };
   dropWhile = predicate: list: lib.drop (firstFalse predicate list) list;
@@ -635,6 +651,7 @@ let
       - `namespace`: attribute path the function is reachable from, `lib` by default
       - `source`: directory holding the library sources whose doc blocks are read, the flake library by default
       - `internal`: whether the function is outside the public surface, whose documentation may be omitted
+      - `sections`: child sections already rendered for the function, such as the options of an exported type
     */
     documentFunction =
       {
@@ -642,6 +659,7 @@ let
         name,
         internal ? false,
         namespace ? "lib",
+        sections ? [ ],
         source ? ./.,
       }:
       let
@@ -652,6 +670,7 @@ let
       in
       section {
         inherit internal;
+        inherit sections;
         arguments = map (argument: {
           inherit argument;
           argumentType = blocks.argumentTypeOf name argument;
@@ -659,6 +678,7 @@ let
         description = blocks.docSummary name;
         documented = blocks.hasDocBlock name;
         hashCommented = blocks.hashCommented name;
+        kind = "function";
         language = "nix";
         source =
           if location == null then
@@ -734,6 +754,48 @@ let
         usage = "nix flake init -t ${if url == "" then "." else url}#${name}";
       };
     /**
+      Documents one exported value: what it is, the type it has, and where it is defined.
+
+      # Arguments
+      - `name`: attribute name of the value
+      - `internal`: whether the value is part of the internal surface
+      - `namespace`: how the value is reached from the flake's library
+      - `source`: directory holding the library sources whose doc blocks are read
+      - `sections`: child sections already rendered for the value, such as the options of an exported type
+    */
+    documentValue =
+      {
+        name,
+        internal ? false,
+        namespace ? "lib",
+        sections ? [ ],
+        source ? ./.,
+      }:
+      let
+        blocks = docBlocksFor source;
+        location = blocks.sourceLocation name;
+      in
+      section {
+        inherit internal;
+        inherit sections;
+        description = blocks.docSummary name;
+        documented = blocks.hasDocBlock name;
+        hashCommented = blocks.hashCommented name;
+        kind = "value";
+        language = "nix";
+        source =
+          if location == null then
+            null
+          else
+            {
+              inherit (location) line;
+              file = "${baseNameOf source}/${location.file}";
+            };
+        title = name;
+        type = blocks.typeOf name;
+        usage = "${namespace}.${name}";
+      };
+    /**
       Builds the documentation of a flake: one document per group of outputs, the modules, and the root index that
       links them.
 
@@ -774,6 +836,52 @@ let
         url ? "",
       }:
       let
+        documentSurface =
+          {
+            namespace,
+            surface,
+            depth ? 2,
+            internal ? false,
+          }:
+          map (
+            n:
+            let
+              sections =
+                let
+                  shape = shapeOf value;
+                in
+                lib.optional (shape != null) (section {
+                  bodyFile = optionsDoc pkgs (depth + 2) shape;
+                  title = "Options";
+                  usage = "";
+                });
+              value = surface.${n};
+            in
+            if isNamespace value then
+              section {
+                sections = documentSurface {
+                  inherit internal;
+                  depth = depth + 1;
+                  namespace = "${namespace}.${n}";
+                  surface = value;
+                };
+                title = n;
+                usage = "";
+              }
+            else if builtins.isFunction value then
+              documentFunction {
+                inherit internal namespace sections;
+                fn = value;
+                name = n;
+                source = librarySource;
+              }
+            else
+              documentValue {
+                inherit internal namespace sections;
+                name = n;
+                source = librarySource;
+              }
+          ) (exportsOf surface);
         documentedChecks = lib.filterAttrs (
           checkName: _:
           !(documentedPackages ? ${checkName})
@@ -781,6 +889,7 @@ let
           && !(lib.hasPrefix "pkgs-" checkName)
         ) checks;
         documentedPackages = lib.filterAttrs (_name: package: !(package.meta.internal or false)) packages;
+        exportsOf = surface: lib.sort (a: b: a < b) (builtins.attrNames surface);
         files = map (group: {
           inherit (group) relative;
           doc = writeDocumentation {
@@ -921,36 +1030,24 @@ let
             group = lib.findFirst (each: each.title == title) null groupDocuments;
           in
           lib.optional (group != null && groupEntries group != [ ]) (groupSummary group);
-        libraryInternalSections =
-          map
-            (
-              n:
-              documentFunction {
-                fn = internalLibrary.${n};
-                internal = true;
-                name = n;
-                namespace = "lib.internal";
-                source = librarySource;
-              }
-            )
-            (
-              lib.sort (a: b: a < b) (
-                builtins.attrNames (lib.filterAttrs (_name: builtins.isFunction) internalLibrary)
-              )
-            );
-        libraryPublicSections =
-          map
-            (
-              n:
-              documentFunction {
-                fn = library.${n};
-                name = n;
-                source = librarySource;
-              }
-            )
-            (
-              lib.sort (a: b: a < b) (builtins.attrNames (lib.filterAttrs (_name: builtins.isFunction) library))
-            );
+        isNamespace =
+          value:
+          builtins.isAttrs value
+          && !(value ? _type)
+          && !(value ? outPath)
+          && builtins.attrNames value != [ ]
+          && lib.all (n: builtins.isFunction value.${n} || builtins.isAttrs value.${n}) (
+            builtins.attrNames value
+          );
+        libraryInternalSections = documentSurface {
+          internal = true;
+          namespace = "lib.internal";
+          surface = internalLibrary;
+        };
+        libraryPublicSections = documentSurface {
+          namespace = "lib";
+          surface = library;
+        };
         librarySections =
           if libraryPublicSections != [ ] && libraryInternalSections != [ ] then
             [
@@ -999,7 +1096,7 @@ let
             problems = inspectExample;
             sections =
               lib.optional (info.names != [ ]) (section {
-                bodyFile = optionsDoc pkgs info.options;
+                bodyFile = optionsDoc pkgs 4 info.options;
                 title = "Options";
                 usage = "";
               })
@@ -1024,6 +1121,33 @@ let
           ++ groupSummaryOf "Packages"
           ++ groupSummaryOf "Library"
           ++ groupSummaryOf "Checks";
+        shapeOf =
+          value:
+          let
+            applied =
+              if builtins.isFunction value then
+                if lib.all (argument: argument) (lib.attrValues arguments) then
+                  builtins.tryEval (value { })
+                else
+                  { success = false; }
+              else
+                builtins.tryEval value;
+            arguments = if builtins.isFunction value then builtins.functionArgs value else { };
+            evaluated =
+              if submodules == null then
+                null
+              else
+                builtins.tryEval (lib.evalModules { modules = lib.toList submodules; }).options;
+            submodules =
+              if applied.success && builtins.isAttrs applied.value && applied.value ? getSubModules then
+                applied.value.getSubModules
+              else
+                null;
+          in
+          if evaluated != null && evaluated.success then
+            lib.removeAttrs evaluated.value [ "_module" ]
+          else
+            null;
         slug = text: lib.replaceStrings [ " " ] [ "-" ] (lib.toLower text);
         sourceOf =
           kind: name:
@@ -1114,33 +1238,32 @@ let
       ++ map (entry: "${entry.path}: names no type, so what the thing is cannot be stated") untyped
       ++ lib.concatMap (
         entry:
-        map
-          (
-            argument:
-            "${entry.path}: argument '${argument.argument}' has no documented type, so the reader cannot tell what to pass"
-          )
-          (
-            lib.filter (
-              argument: argument.argumentType == "" && !(entry.section.internal or false)
-            ) entry.section.arguments
-          )
+        map (
+          argument:
+          "${entry.path}: argument '${argument.argument}' has no documented type, so the reader cannot tell what to pass"
+        ) (lib.filter (argument: argument.argumentType == "") entry.section.arguments)
       ) all
       ++
         map
           (
             entry:
-            "${entry.path}: is a function with no documentation block above it, so nothing states what it is for or what it accepts"
+            if (entry.section.kind or null) == "value" then
+              "${entry.path}: is an exported value with no documentation block above it, so nothing states what it is"
+            else
+              "${entry.path}: is a function with no documentation block above it, so nothing states what it is for or what it accepts"
           )
           (
             lib.filter (
               entry:
-              entry.section.type == "function" && !entry.section.documented && !(entry.section.internal or false)
+              (entry.section.kind or null) != null
+              && !entry.section.documented
+              && !(entry.section.internal or false)
             ) all
           )
       ++ map (
         entry:
         "${entry.path}: is documented with a `#` line-comment block directly above it, which is not read; the only doc-comment format is the RFC-145 `/** */` block"
-      ) (lib.filter (entry: entry.section.type == "function" && entry.section.hashCommented) all)
+      ) (lib.filter (entry: (entry.section.kind or null) != null && entry.section.hashCommented) all)
       ++ lib.concatMap (
         entry: map (problem: "${entry.path}: ${problem}") (entry.section.problems or [ ])
       ) all;
@@ -1525,6 +1648,7 @@ let
       # Arguments
       - `depth`: heading level of the section, 2 for a top-level section of a document
       - `s`: the section to render
+      - `fromDir`: directory the rendered document lives in, so source links resolve relative to it
     */
     renderSection =
       {
@@ -1603,6 +1727,9 @@ let
       - `sections`: child sections, rendered one heading level deeper
       - `tests`: list of { test, documented } naming the checks the thing is tested by
       - `problems`: problems found while documenting this thing, each reported as a check failure
+      - `kind`: what sort of thing it is when the doc block describes it, function or value, null for sections that are not library exports
+      - `hashCommented`: whether the thing is documented with `#` lines instead of an RFC-145 block
+      - `internal`: whether the thing belongs to the internal surface, which is published but not part of the flake's contract
     */
     section =
       {
@@ -1615,6 +1742,7 @@ let
         documented ? true,
         hashCommented ? false,
         internal ? false,
+        kind ? null,
         language ? "",
         problems ? [ ],
         sections ? [ ],
@@ -1627,6 +1755,7 @@ let
           title
           usage
           description
+          kind
           documented
           hashCommented
           internal
@@ -1657,6 +1786,8 @@ let
       - `description`: statement of what the flake is for, printed under the title; when name is empty its first
         line titles the document and the rest of it is printed under that title
       - `sections`: sections to render, in order
+      - `fromDir`: directory the rendered document lives in, so source links resolve relative to it
+      - `name`: heading the document carries, the first line of the description when it states none
     */
     writeDocumentation =
       {
@@ -1786,7 +1917,16 @@ let
               ''
             else
               "";
-          rendered = builtins.tryEval (lib.generators.toPretty { } option.default);
+          rendered =
+            if option ? defaultText then
+              {
+                success = true;
+                value = option.defaultText;
+              }
+            else if option ? default then
+              builtins.tryEval (lib.generators.toPretty { } option.default)
+            else
+              { success = false; };
           renderedExample = builtins.tryEval (
             if option ? example && option.example != null then
               lib.generators.toPretty { } option.example
@@ -1807,7 +1947,9 @@ let
         + "\n\n";
     in
     render [ ] options;
-  optionsDoc = pkgs: options: pkgs.writeText "options.md" (optionMarkdown 4 options);
+  optionsDoc =
+    pkgs: depth: options:
+    pkgs.writeText "options.md" (optionMarkdown depth options);
   renderPath = path: lib.concatStringsSep "." path;
   renderTestLinks =
     { tests }:

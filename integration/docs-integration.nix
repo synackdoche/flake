@@ -132,6 +132,13 @@ in
     grep -q 'lib.types.wrap' lib/README.md || fail "all-types: the namespace member has no qualified usage line"
     grep -q '\[lib/default.nix:.*\](default.nix)' lib/README.md || fail "all-types: the function has no source link relative to lib/README.md"
 
+    nix eval --json "path:$PWD#lib.double" --apply 'f: builtins.isFunction f' 2>/dev/null | grep -q true || fail "all-types: a documented function is published as a plain lambda, so builtins.isFunction holds"
+    nix eval --json "path:$PWD#lib.double" --apply 'f: f { x = 3; }' 2>/dev/null | grep -q 6 || fail "all-types: the published function returns what the declaration it documents returns"
+    nix eval --json "path:$PWD#lib.answer" 2>/dev/null | grep -q 42 || fail "all-types: a documented value is published as the value it declares, not as the declaration that documents it"
+    nix eval --json "path:$PWD#lib" --apply 'l: l ? internal' 2>/dev/null | grep -q false || fail "all-types: the published library still exports the internal surface"
+    if nix eval --json "path:$PWD#lib.double" --apply 'f: f { x = "no"; }' > /dev/null 2>&1; then fail "all-types: the published function accepts an argument its meta.args type rejects"; fi
+    pass "a documented export is published as a checked function and a documented value as the value itself"
+
     [ -f systems/README.md ] || fail "all-types: no systems/README.md"
     grep -q '^## example$' systems/README.md || fail "all-types: systems/README.md documents no example system"
     grep -A10 '^## example$' systems/README.md | grep -q 'The example host runs the demo stack\.' || fail "all-types: the system is not documented with the description the host states"

@@ -2,23 +2,56 @@
 
 SYNACKDOCHE GAMES - Base Flake — library
 
-## descriptionsProblems
+## buildDocumentedFunction
 
 ```nix
-lib.internal.descriptionsProblems { allowComponents ? …, components, options }
+lib.internal.buildDocumentedFunction { name, value }
 ```
 
 *Type:* function
 
 *Arguments:*
 
-- `allowComponents`: component names that may be mentioned without being reported
-- `components`: names of the components this flake is built from, whose mention is reported
-- `options`: evaluated option set whose descriptions are inspected
+- `name` (`*string*`): attribute name the function is exported under, used in the type error it raises
+- `value` (`*attribute set*`): declaration carrying meta.args and __functor, the source of the rendered arguments
+
+Builds a real curried function from a documented declaration, so consumers get a plain lambda instead of a functor attribute set and every argument is checked against the type its meta.args entry states.
+
+*Source:* [lib/default.nix:106](default.nix)
+
+## buildDocumentedFunctions
+
+```nix
+lib.internal.buildDocumentedFunctions { surface }
+```
+
+*Type:* function
+
+*Arguments:*
+
+- `surface` (`*attribute set*`): attribute set of library exports to build, usually the flake's lib output
+
+Builds every documented declaration in a surface into a real function, leaving exports that declare no meta untouched.
+
+*Source:* [lib/default.nix:187](default.nix)
+
+## descriptionsProblems
+
+```nix
+lib.internal.descriptionsProblems { allowComponents, components, options }
+```
+
+*Type:* function
+
+*Arguments:*
+
+- `allowComponents` (`*list of string*`): component names that may be mentioned without being reported
+- `components` (`*list of string*`): names of the components this flake is built from, whose mention is reported
+- `options` (`*attribute set*`): evaluated option set whose descriptions are inspected
 
 Reports descriptions that are missing, too short to state a contract, repeated, or that name another component of the flake.
 
-*Source:* [lib/default.nix:306](default.nix)
+*Source:* [lib/default.nix:209](default.nix)
 
 ## devShell
 
@@ -30,12 +63,12 @@ lib.internal.devShell { pkgs, preCommit }
 
 *Arguments:*
 
-- `pkgs`: nixpkgs package set the shell is built with
-- `preCommit`: pre-commit check whose packages and hook the shell exposes
+- `pkgs` (`*attribute set*`): nixpkgs package set the shell is built with
+- `preCommit` (`*attribute set*`): pre-commit check whose packages and hook the shell exposes
 
 Shell environment carrying the formatter's packages and its shell hook.
 
-*Source:* [lib/default.nix:363](default.nix)
+*Source:* [lib/default.nix:279](default.nix)
 
 ## docsApp
 
@@ -47,59 +80,60 @@ lib.internal.docsApp { pkgs }
 
 *Arguments:*
 
-- `pkgs`: nixpkgs package set the wrapper script runs with; the flake it documents is read from the working directory
+- `pkgs` (`*attribute set*`): nixpkgs package set the wrapper script runs with; the flake it documents is read from the working directory
 
 Writes one generated README into the working tree, for the repository or for one named module.
 
-*Source:* [lib/default.nix:375](default.nix)
+*Source:* [lib/default.nix:301](default.nix)
 
 ## docsGate
 
 ```nix
-lib.internal.docsGate { checks ? …, flake, librarySource ? …, pkgs, root ? … }
+lib.internal.docsGate { checks, flake, pkgs, root }
 ```
 
 *Type:* function
 
 *Arguments:*
 
-- `checks`: checks to document, none by default, because a check cannot enumerate the checks without forcing itself
-- `flake`: the flake whose documentation is inspected
-- `librarySource`: directory holding the library sources whose doc blocks are read, `<root>/lib` by default
-- `pkgs`: nixpkgs package set for the system being documented
-- `root`: source tree the documentation describes, the store copy of the flake by default
+- `checks` (`*attribute set*`): checks to document, none by default, because a check cannot enumerate the checks without forcing itself
+- `flake` (`*attribute set*`): the flake whose documentation is inspected
+- `pkgs` (`*attribute set*`): nixpkgs package set for the system being documented
+- `root` (`*absolute path*`): source tree the documentation describes, the store copy of the flake by default
 
 Fails evaluation when the documentation of a flake is incomplete, so a repository can make its documentation a check instead of a convention.
 
-*Source:* [lib/default.nix:461](default.nix)
+*Source:* [lib/default.nix:386](default.nix)
 
 ## docsTree
 
 ```nix
-lib.internal.docsTree { apps ? …, checks ? …, configurations ? …, description, formatter ? …, internalLibrary ? …, library ? …, librarySource ? …, modules ? …, packages ? …, pkgs, root, system, templates ? …, url ? … }
+lib.internal.docsTree { apps, checks, configurations, description, formatter, internalLibrary, library, modules, packages, pkgs, requireInternalDocumentation, root, system, templates, url }
 ```
 
 *Type:* function
 
 *Arguments:*
 
-- `apps`: attrset of apps to document, empty when the flake exports none
-- `checks`: attrset of checks to document, empty when the flake exports none
-- `configurations`: attrset of NixOS configurations to document
-- `description`: sentence saying what this flake is for
-- `formatter`: the derivation exposed as the flake formatter for this system
-- `internalLibrary`: attrset of functions documented only in lib/README.md
-- `library`: attrset of functions to document in the index
-- `librarySource`: directory holding the library sources whose doc blocks are read
-- `modules`: attrset of NixOS modules to document
-- `packages`: attrset of packages to document
-- `pkgs`: nixpkgs package set used to render option documentation
-- `root`: path to the repository root, used to locate module files
-- `system`: system string selecting the packages, apps and checks to document
-- `templates`: attrset of templates to document
-- `url`: flake reference the templates are published under, empty when the flake states none
+- `apps` (`*attribute set*`): attrset of apps to document, empty when the flake exports none
+- `checks` (`*attribute set*`): attrset of checks to document, empty when the flake exports none
+- `configurations` (`*attribute set*`): attrset of NixOS configurations to document
+- `description` (`*string*`): sentence saying what this flake is for
+- `formatter` (`*null or package*`): the derivation exposed as the flake formatter for this system
+- `internalLibrary` (`*attribute set*`): attrset of functions documented only in lib/README.md
+- `library` (`*attribute set*`): attrset of functions to document in the index
+- `modules` (`*attribute set*`): attrset of NixOS modules to document
+- `packages` (`*attribute set*`): attrset of packages to document
+- `pkgs` (`*attribute set*`): nixpkgs package set used to render option documentation
+- `requireInternalDocumentation` (`*boolean*`): whether an internal export must state meta.description too, false when the internal surface may stay opaque
+- `root` (`*absolute path*`): path to the repository root, used to locate module files
+- `system` (`*string*`): system string selecting the packages, apps and checks to document
+- `templates` (`*attribute set*`): attrset of templates to document
+- `url` (`*string*`): flake reference the templates are published under, empty when the flake states none
 
-*Source:* [lib/default.nix:514](default.nix)
+Builds the documentation tree: the repository README plus one README per output kind, ready to install.
+
+*Source:* [lib/default.nix:443](default.nix)
 
 ## documentApp
 
@@ -111,12 +145,12 @@ lib.internal.documentApp { app, name }
 
 *Arguments:*
 
-- `app`: the app record being documented
-- `name`: attribute name of the app
+- `app` (`*attribute set*`): the app record being documented
+- `name` (`*string*`): attribute name of the app
 
 Documents one app: how to run it and what its meta.description says.
 
-*Source:* [lib/default.nix:571](default.nix)
+*Source:* [lib/default.nix:561](default.nix)
 
 ## documentCheck
 
@@ -128,177 +162,178 @@ lib.internal.documentCheck { check, name, system }
 
 *Arguments:*
 
-- `check`: the check derivation being documented
-- `name`: attribute name of the check
-- `system`: system string selecting the check set
+- `check` (`*package*`): the check derivation being documented
+- `name` (`*string*`): attribute name of the check
+- `system` (`*string*`): system string selecting the check set
 
 Documents one check: how to build it and the assertions it makes.
 
-*Source:* [lib/default.nix:588](default.nix)
+*Source:* [lib/default.nix:586](default.nix)
 
 ## documentConfiguration
 
 ```nix
-lib.internal.documentConfiguration { configuration, name, source ? … }
+lib.internal.documentConfiguration { configuration, name, source }
 ```
 
 *Type:* function
 
 *Arguments:*
 
-- `configuration`: the evaluated configuration being documented
-- `name`: attribute name of the configuration
-- `source`: path of the configuration file whose `meta.description` is read, null when the location is unknown
+- `configuration` (`*attribute set*`): the evaluated configuration being documented
+- `name` (`*string*`): attribute name of the configuration
+- `source` (`*null or string*`): path of the configuration file whose `meta.description` is read, null when the location is unknown
 
 Documents one NixOS configuration: how to build it, the description the host states for itself and its host name and system.
 
-*Source:* [lib/default.nix:609](default.nix)
+*Source:* [lib/default.nix:619](default.nix)
 
 ## documentFunction
 
 ```nix
-lib.internal.documentFunction { fn, internal ? …, name, namespace ? …, sections ? …, source ? … }
+lib.internal.documentFunction { fn, internal, name, namespace, position, sections }
 ```
 
 *Type:* function
 
 *Arguments:*
 
-- `fn`: the function being documented
-- `internal`: whether the function is outside the public surface, whose documentation may be omitted
-- `name`: attribute name of the function, used to find its doc block
-- `namespace`: attribute path the function is reachable from, `lib` by default
-- `sections`: child sections already rendered for the function, such as the options of an exported type
-- `source`: directory holding the library sources whose doc blocks are read, the flake library by default
+- `fn` (`*anything*`): the declaration being documented, carrying meta.description and, when callable, meta.args
+- `internal` (`*boolean*`): whether the function is outside the public surface, whose documentation may be omitted
+- `name` (`*string*`): attribute name of the function, used to find its doc block
+- `namespace` (`*string*`): attribute path the function is reachable from, `lib` by default
+- `position` (`*null or (attribute set)*`): { file, line, path } where the function is bound, null when it is not bound in a source file
+- `sections` (`*list of (attribute set)*`): child sections already rendered for the function, such as the options of an exported type
 
-Documents one function: how to call it, what it is for, and what each argument is.
+Documents one exported function from the metadata it declares: how to call it, what it is for and what each argument is.
 
-*Source:* [lib/default.nix:656](default.nix)
+*Source:* [lib/default.nix:675](default.nix)
 
 ## documentPackage
 
 ```nix
-lib.internal.documentPackage { checks ? …, formatter ? …, name, package }
+lib.internal.documentPackage { checks, formatter, name, package }
 ```
 
 *Type:* function
 
 *Arguments:*
 
-- `checks`: names of the checks this document links to, so passthru.tests entries become links
-- `formatter`: the flake's formatter for this system, so it is documented as `nix fmt` instead of a build
-- `name`: attribute name of the package
-- `package`: the derivation being documented
+- `checks` (`*list of string*`): names of the checks this document links to, so passthru.tests entries become links
+- `formatter` (`*null or package*`): the flake's formatter for this system, so it is documented as `nix fmt` instead of a build
+- `name` (`*string*`): attribute name of the package
+- `package` (`*package*`): the derivation being documented
 
 Documents one package: how to run it when it has a mainProgram, how to build it otherwise, what its meta.description says, and which checks it is tested by.
 
-*Source:* [lib/default.nix:705](default.nix)
+*Source:* [lib/default.nix:758](default.nix)
 
 ## documentTemplate
 
 ```nix
-lib.internal.documentTemplate { name, template, url ? … }
+lib.internal.documentTemplate { name, template, url }
 ```
 
 *Type:* function
 
 *Arguments:*
 
-- `name`: attribute name of the function, used to find its doc block
-- `template`: the template record, carrying the description its flake states
-- `url`: flake reference the templates are published under, `.` when the flake states none
+- `name` (`*string*`): attribute name of the function, used to find its doc block
+- `template` (`*attribute set*`): the template record, carrying the description its flake states
+- `url` (`*string*`): flake reference the templates are published under, `.` when the flake states none
 
-Documents one library function: its call shape, the types from the doc block above it, and the doc block's summary.
+Documents one template: how to initialise a flake from it and the description its flake states.
 
-*Source:* [lib/default.nix:743](default.nix)
+*Source:* [lib/default.nix:806](default.nix)
 
 ## documentValue
 
 ```nix
-lib.internal.documentValue { internal ? …, name, namespace ? …, sections ? …, source ? … }
+lib.internal.documentValue { internal, name, namespace, position, sections, value }
 ```
 
 *Type:* function
 
 *Arguments:*
 
-- `internal`: whether the value is part of the internal surface
-- `name`: attribute name of the value
-- `namespace`: how the value is reached from the flake's library
-- `sections`: child sections already rendered for the value, such as the options of an exported type
-- `source`: directory holding the library sources whose doc blocks are read
+- `internal` (`*boolean*`): whether the value is part of the internal surface
+- `name` (`*string*`): attribute name of the value
+- `namespace` (`*string*`): how the value is reached from the flake's library
+- `position` (`*null or (attribute set)*`): { file, line, path } where the value is bound, null when it is not bound in a source file
+- `sections` (`*list of (attribute set)*`): child sections already rendered for the value, such as the options of an exported type
+- `value` (`*anything*`): the export being documented, carrying meta.description and meta.type
 
-Documents one exported value: what it is, the type it has, and where it is defined.
+Documents one exported value from the metadata it declares: what it is, the type label it states and where it is defined.
 
-*Source:* [lib/default.nix:766](default.nix)
+*Source:* [lib/default.nix:839](default.nix)
 
 ## documentation
 
 ```nix
-lib.internal.documentation { apps ? …, checks ? …, configurations ? …, description, formatter ? …, internalLibrary ? …, library ? …, librarySource ? …, modules ? …, packages ? …, pkgs, root, system, templates ? …, url ? … }
+lib.internal.documentation { apps, checks, configurations, description, formatter, internalLibrary, library, modules, packages, pkgs, requireInternalDocumentation, root, system, templates, url }
 ```
 
 *Type:* function
 
 *Arguments:*
 
-- `apps`: attrset of apps to document
-- `checks`: attrset of checks to document
-- `configurations`: attrset of NixOS configurations to document
-- `description`: statement of what the flake is for, shown at the top of every document
-- `formatter`: derivation exposed as the flake formatter, documented as `nix fmt`
-- `internalLibrary`: attrset of functions documented as part of the internal surface
-- `library`: attrset of functions documented as part of the public surface
-- `librarySource`: directory holding the library sources whose doc blocks are read
-- `modules`: attrset of NixOS modules to document
-- `packages`: attrset of packages to document
-- `pkgs`: nixpkgs package set used to build the documents
-- `root`: source tree the documents describe, read for module options
-- `system`: system the documented outputs belong to
-- `templates`: attrset of templates to document
-- `url`: flake reference the templates are published under, empty when the flake states none
+- `apps` (`*attribute set*`): attrset of apps to document
+- `checks` (`*attribute set*`): attrset of checks to document
+- `configurations` (`*attribute set*`): attrset of NixOS configurations to document
+- `description` (`*string*`): statement of what the flake is for, shown at the top of every document
+- `formatter` (`*null or package*`): derivation exposed as the flake formatter, documented as `nix fmt`
+- `internalLibrary` (`*attribute set*`): attrset of functions documented as part of the internal surface
+- `library` (`*attribute set*`): attrset of functions documented as part of the public surface
+- `modules` (`*attribute set*`): attrset of NixOS modules to document
+- `packages` (`*attribute set*`): attrset of packages to document
+- `pkgs` (`*attribute set*`): nixpkgs package set used to build the documents
+- `requireInternalDocumentation` (`*boolean*`): whether an internal export must state meta.description too, false when the internal surface may stay opaque
+- `root` (`*absolute path*`): source tree the documents describe, read for module options
+- `system` (`*string*`): system the documented outputs belong to
+- `templates` (`*attribute set*`): attrset of templates to document
+- `url` (`*string*`): flake reference the templates are published under, empty when the flake states none
 
 Builds the documentation of a flake: one document per group of outputs, the modules, and the root index that links them.
 
-*Source:* [lib/default.nix:820](default.nix)
+*Source:* [lib/default.nix:894](default.nix)
 
 ## documentationProblems
 
 ```nix
-lib.internal.documentationProblems { description, sections }
+lib.internal.documentationProblems { description, requireInternalDocumentation, sections }
 ```
 
 *Type:* function
 
 *Arguments:*
 
-- `description`: sentence stating what the flake is for
-- `sections`: the rendered sections that are inspected
+- `description` (`*string*`): sentence stating what the flake is for
+- `requireInternalDocumentation` (`*boolean*`): whether an internal export must state meta.description too, false when the internal surface may stay opaque
+- `sections` (`*list of (attribute set)*`): the rendered sections that are inspected
 
 Reports every way a rendered document falls short of being usable: purpose unstated, usage missing, arguments untyped.
 
-*Source:* [lib/default.nix:1193](default.nix)
+*Source:* [lib/default.nix:1382](default.nix)
 
 ## flakeArgs
 
 ```nix
-lib.internal.flakeArgs { checks ? …, description ? …, flake, librarySource ? …, pkgs, root ? … }
+lib.internal.flakeArgs { checks, description, flake, pkgs, root }
 ```
 
 *Type:* function
 
 *Arguments:*
 
-- `checks`: checks to document, every check of the flake by default; pass an empty set from a check, which cannot enumerate the checks without forcing itself
-- `description`: statement of what the flake is for, the multiline description in flake.nix by default
-- `flake`: the flake whose outputs are documented
-- `librarySource`: directory holding the library sources whose doc blocks are read, `<flake>/lib` by default
-- `pkgs`: nixpkgs package set for the system being documented
-- `root`: source tree the documentation describes, the store copy of the flake by default
+- `checks` (`*null or (attribute set)*`): checks to document, every check of the flake by default; pass an empty set from a check, which cannot enumerate the checks without forcing itself
+- `description` (`*string*`): statement of what the flake is for, the multiline description in flake.nix by default
+- `flake` (`*attribute set*`): the flake whose outputs are documented
+- `pkgs` (`*attribute set*`): nixpkgs package set for the system being documented
+- `root` (`*absolute path*`): source tree the documentation describes, the store copy of the flake by default
 
 Derives the arguments that document a flake, from the flake itself, so a repository states nothing about its own documentation.
 
-*Source:* [lib/default.nix:1283](default.nix)
+*Source:* [lib/default.nix:1476](default.nix)
 
 ## flakeDescription
 
@@ -310,11 +345,11 @@ lib.internal.flakeDescription { root }
 
 *Arguments:*
 
-- `root`: source tree containing flake.nix
+- `root` (`*absolute path*`): source tree containing flake.nix
 
 Reads the description a flake states about itself, which is the only statement of what the flake is for.
 
-*Source:* [lib/default.nix:1318](default.nix)
+*Source:* [lib/default.nix:1532](default.nix)
 
 ## messageProblems
 
@@ -326,12 +361,12 @@ lib.internal.messageProblems { assertions, options }
 
 *Arguments:*
 
-- `assertions`: list of { assertion, message } records whose messages are inspected
-- `options`: evaluated option set the message paths are resolved against
+- `assertions` (`*list of (attribute set)*`): list of { assertion, message } records whose messages are inspected
+- `options` (`*attribute set*`): evaluated option set the message paths are resolved against
 
 Reports assertion messages that do not name a declared option, or that omit the expected value and the fix.
 
-*Source:* [lib/default.nix:1376](default.nix)
+*Source:* [lib/default.nix:1593](default.nix)
 
 ## mkAssertion
 
@@ -343,130 +378,129 @@ lib.internal.mkAssertion { at, condition, expected, fix, violation }
 
 *Arguments:*
 
-- `at`: list of attribute names naming the option the assertion is about
-- `condition`: the property being asserted, true when it holds
-- `expected`: sentence saying what the configuration should look like instead
-- `fix`: sentence saying how to make it look that way
-- `violation`: sentence saying what is wrong when the condition is false
+- `at` (`*list of string*`): list of attribute names naming the option the assertion is about
+- `condition` (`*boolean*`): the property being asserted, true when it holds
+- `expected` (`*string*`): sentence saying what the configuration should look like instead
+- `fix` (`*string*`): sentence saying how to make it look that way
+- `violation` (`*string*`): sentence saying what is wrong when the condition is false
 
 Builds an assertion record whose message states the violation, what was expected and how to fix it.
 
-*Source:* [lib/default.nix:1411](default.nix)
+*Source:* [lib/default.nix:1634](default.nix)
 
 ## mkSection
 
 ```nix
-lib.internal.mkSection { body ? …, sections ? …, title }
+lib.internal.mkSection { body, sections, title }
 ```
 
 *Type:* function
 
 *Arguments:*
 
-- `body`: markdown emitted under the title instead of child headings, null when there is none
-- `sections`: child sections, rendered one heading level deeper, empty when the group only holds prose
-- `title`: heading text of the group
+- `body` (`*null or string*`): markdown emitted under the title instead of child headings, null when there is none
+- `sections` (`*list of (attribute set)*`): child sections, rendered one heading level deeper, empty when the group only holds prose
+- `title` (`*string*`): heading text of the group
 
 Groups child sections under one title, for a part of the document that is itself not a usable thing.
 
-*Source:* [lib/default.nix:1435](default.nix)
+*Source:* [lib/default.nix:1678](default.nix)
 
 ## preCommit
 
 ```nix
-lib.internal.preCommit { extraHooks ? …, pkgs, src }
+lib.internal.preCommit { extraHooks, pkgs, src }
 ```
 
 *Type:* function
 
 *Arguments:*
 
-- `extraHooks`: additional git-hooks definitions merged into the hook set
-- `pkgs`: nixpkgs package set the hooks are taken from
-- `src`: the tree the hooks are run against
+- `extraHooks` (`*attribute set*`): additional git-hooks definitions merged into the hook set
+- `pkgs` (`*attribute set*`): nixpkgs package set the hooks are taken from
+- `src` (`*absolute path*`): the tree the hooks are run against
 
 Runs treefmt through this flake's formatter, plus deadnix, statix and pedantix.
 
-*Source:* [lib/default.nix:1462](default.nix)
+*Source:* [lib/default.nix:1717](default.nix)
 
 ## readmeGate
 
 ```nix
-lib.internal.readmeGate { apps ? …, checks ? …, configurations ? …, description, formatter ? …, internalLibrary ? …, library ? …, librarySource ? …, modules ? …, packages ? …, pkgs, root, system, templates ? …, url ? … }
+lib.internal.readmeGate { apps, checks, configurations, description, formatter, internalLibrary, library, modules, packages, pkgs, requireInternalDocumentation, root, system, templates, url }
 ```
 
 *Type:* function
 
 *Arguments:*
 
-- `apps`: attrset of apps to document, empty when the flake exports none
-- `checks`: attrset of checks to document, empty when the flake exports none
-- `configurations`: attrset of NixOS configurations to document
-- `description`: sentence saying what this flake is for
-- `formatter`: the derivation exposed as the flake formatter for this system
-- `internalLibrary`: attrset of functions documented only in lib/README.md
-- `library`: attrset of functions to document in the index
-- `librarySource`: directory holding the library sources whose doc blocks are read
-- `modules`: attrset of NixOS modules to document
-- `packages`: attrset of packages to document
-- `pkgs`: nixpkgs package set used to render and compare the documents
-- `root`: path to the repository root holding the committed READMEs
-- `system`: system string selecting the documented outputs
-- `templates`: attrset of templates to document
-- `url`: flake reference the templates are published under, empty when the flake states none
+- `apps` (`*attribute set*`): attrset of apps to document, empty when the flake exports none
+- `checks` (`*attribute set*`): attrset of checks to document, empty when the flake exports none
+- `configurations` (`*attribute set*`): attrset of NixOS configurations to document
+- `description` (`*string*`): sentence saying what this flake is for
+- `formatter` (`*null or package*`): the derivation exposed as the flake formatter for this system
+- `internalLibrary` (`*attribute set*`): attrset of functions documented only in lib/README.md
+- `library` (`*attribute set*`): attrset of functions to document in the index
+- `modules` (`*attribute set*`): attrset of NixOS modules to document
+- `packages` (`*attribute set*`): attrset of packages to document
+- `pkgs` (`*attribute set*`): nixpkgs package set used to render and compare the documents
+- `requireInternalDocumentation` (`*boolean*`): whether an internal export must state meta.description too, false when the internal surface may stay opaque
+- `root` (`*absolute path*`): path to the repository root holding the committed READMEs
+- `system` (`*string*`): system string selecting the documented outputs
+- `templates` (`*attribute set*`): attrset of templates to document
+- `url` (`*string*`): flake reference the templates are published under, empty when the flake states none
 
 Fails when a committed README differs from the generated documentation, or when README.md and checks/README.md disagree about a check.
 
-*Source:* [lib/default.nix:1525](default.nix)
+*Source:* [lib/default.nix:1779](default.nix)
 
 ## renderSection
 
 ```nix
-lib.internal.renderSection { depth, fromDir ? …, s }
+lib.internal.renderSection { depth, fromDir, s }
 ```
 
 *Type:* function
 
 *Arguments:*
 
-- `depth`: heading level of the section, 2 for a top-level section of a document
-- `fromDir`: directory the rendered document lives in, so source links resolve relative to it
-- `s`: the section to render
+- `depth` (`*signed integer*`): heading level of the section, 2 for a top-level section of a document
+- `fromDir` (`*string*`): directory the rendered document lives in, so source links resolve relative to it
+- `s` (`*attribute set*`): the section to render
 
 Renders a list of sections into a README derivation.
 
-*Source:* [lib/default.nix:1653](default.nix)
+*Source:* [lib/default.nix:1960](default.nix)
 
 ## section
 
 ```nix
-lib.internal.section { arguments ? …, body ? …, bodyFile ? …, description ? …, documented ? …, hashCommented ? …, internal ? …, kind ? …, language ? …, problems ? …, sections ? …, source ? …, tests ? …, title, type ? …, usage }
+lib.internal.section { arguments, body, bodyFile, description, documented, internal, kind, language, problems, sections, source, tests, title, type, usage }
 ```
 
 *Type:* function
 
 *Arguments:*
 
-- `arguments`: list of { argument, argumentType } describing the call shape
-- `body`: markdown emitted under the title, null when there is none
-- `bodyFile`: path to a rendered markdown fragment appended after the description
-- `description`: sentence saying what the thing is for, empty when the title says it
-- `documented`: whether authored prose exists for the thing, false when it is undocumented
-- `hashCommented`: whether the thing is documented with `#` lines instead of an RFC-145 block
-- `internal`: whether the thing belongs to the internal surface, which is published but not part of the flake's contract
-- `kind`: what sort of thing it is when the doc block describes it, function or value, null for sections that are not library exports
-- `language`: code fence language of the usage snippet, for example nix or sh
-- `problems`: problems found while documenting this thing, each reported as a check failure
-- `sections`: child sections, rendered one heading level deeper
-- `source`: { file, line } naming where the thing is defined in this repository, null when the location is unknown
-- `tests`: list of { test, documented } naming the checks the thing is tested by
-- `title`: heading text naming the thing
-- `type`: what the thing is, for example derivation, app or NixOS module
-- `usage`: snippet that uses the thing, shown in a fenced block
+- `arguments` (`*list of (attribute set)*`): list of { argument, argumentType } describing the call shape
+- `body` (`*null or string*`): markdown emitted under the title, null when there is none
+- `bodyFile` (`*null or absolute path*`): path to a rendered markdown fragment appended after the description
+- `description` (`*string*`): sentence saying what the thing is for, empty when the title says it
+- `documented` (`*boolean*`): whether authored prose exists for the thing, false when it is undocumented
+- `internal` (`*boolean*`): whether the thing belongs to the internal surface, which is published but not part of the flake's contract
+- `kind` (`*null or string*`): what sort of thing it is when the doc block describes it, function or value, null for sections that are not library exports
+- `language` (`*string*`): code fence language of the usage snippet, for example nix or sh
+- `problems` (`*list of string*`): problems found while documenting this thing, each reported as a check failure
+- `sections` (`*list of (attribute set)*`): child sections, rendered one heading level deeper
+- `source` (`*null or (attribute set)*`): { file, line } naming where the thing is defined in this repository, null when the location is unknown
+- `tests` (`*list of (attribute set)*`): list of { test, documented } naming the checks the thing is tested by
+- `title` (`*string*`): heading text naming the thing
+- `type` (`*string*`): what the thing is, for example derivation, app or NixOS module
+- `usage` (`*string*`): snippet that uses the thing, shown in a fenced block
 
 One documented thing: what it is, how to call or import it, what its arguments are and any child sections.
 
-*Source:* [lib/default.nix:1734](default.nix)
+*Source:* [lib/default.nix:2048](default.nix)
 
 ## testsLine
 
@@ -478,29 +512,29 @@ lib.internal.testsLine { tests }
 
 *Arguments:*
 
-- `tests`: list of { test, documented } records naming the checks a package is tested by
+- `tests` (`*list of (attribute set)*`): list of { test, documented } records naming the checks a package is tested by
 
 Renders the test links of a section: a markdown link when the check is documented, plain text when it is not.
 
-*Source:* [lib/default.nix:1779](default.nix)
+*Source:* [lib/default.nix:2153](default.nix)
 
 ## writeDocumentation
 
 ```nix
-lib.internal.writeDocumentation { description, fromDir ? …, name ? …, pkgs, sections }
+lib.internal.writeDocumentation { description, fromDir, name, pkgs, sections }
 ```
 
 *Type:* function
 
 *Arguments:*
 
-- `description`: statement of what the flake is for, printed under the title; when name is empty its first line titles the document and the rest of it is printed under that title
-- `fromDir`: directory the rendered document lives in, so source links resolve relative to it
-- `name`: title of the document, the first line of the description when it is empty
-- `pkgs`: nixpkgs package set the document derivation is built with
-- `sections`: sections to render, in order
+- `description` (`*string*`): statement of what the flake is for, printed under the title; when name is empty its first line titles the document and the rest of it is printed under that title
+- `fromDir` (`*string*`): directory the rendered document lives in, so source links resolve relative to it
+- `name` (`*string*`): title of the document, the first line of the description when it is empty
+- `pkgs` (`*attribute set*`): nixpkgs package set the document derivation is built with
+- `sections` (`*list of (attribute set)*`): sections to render, in order
 
 Writes one document: a heading, the statement of purpose, and the sections rendered in order.
 
-*Source:* [lib/default.nix:1792](default.nix)
+*Source:* [lib/default.nix:2163](default.nix)
 

@@ -128,6 +128,10 @@
           packages =
             (generated.packages or { })
             // lib.mapAttrs (system: d: (generated.packages.${system} or { }) // d.packages) defaults;
+        }
+        // lib.optionalAttrs (generated ? lib) {
+          lib = own.lib.internal.buildDocumentedFunctions (builtins.removeAttrs generated.lib [ "internal" ]);
+          libDeclarations = generated.lib;
         };
       own = blueprint {
         inherit inputs;
@@ -138,6 +142,7 @@
     own
     // {
       __functor = _: mixin;
+      docsSettings.requireInternalDocumentation = true;
       url = "github:synackdoche/flake";
     };
 }

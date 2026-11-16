@@ -41,7 +41,7 @@ let
       assertion =
         valueSection.type == "Int"
         && valueSection.kind == "value"
-        && lib.hasSuffix "second.nix" valueSection.source.file
+        && lib.hasSuffix "values.nix" valueSection.source.path
         && valueSection.description == "The answer to everything.";
       message = "an exported value is documented with the type its doc block states and a link to the file it is defined in";
     }
@@ -53,7 +53,7 @@ let
     }
     {
       assertion = lib.any (
-        problem: lib.hasInfix "probeBare: is an exported value with no documentation block" problem
+        problem: lib.hasInfix "probeBare: is an exported value that declares no meta.description" problem
       ) libraryValues.problems;
       message = "an exported value with no doc block is reported as undocumented";
     }
@@ -134,8 +134,8 @@ let
       message = "a flake whose description is empty is reported, because the description is the only statement of purpose";
     }
     {
-      assertion = lib.any (lib.hasInfix "usage line carries no argument shape") broken.problems;
-      message = "a function whose arguments cannot be inferred is reported instead of being documented as uncallable";
+      assertion = lib.any (lib.hasInfix "positional: is a function that declares no meta.description") broken.problems;
+      message = "a function whose arguments and purpose cannot be read is reported instead of being documented as uncallable";
     }
     {
       assertion = lib.any (lib.hasInfix "usage line carries no language label") (
@@ -244,7 +244,7 @@ let
       message = "a NixOS configuration is documented with the attribute path that builds it";
     }
     {
-      assertion = functionPackage.usage == "lib.internal.mkSection { body ? …, sections ? …, title }";
+      assertion = functionPackage.usage == "lib.internal.mkSection { body, sections, title }";
       message = "a function is documented under the namespace it is actually reachable from, with its argument shape";
     }
     {
@@ -361,10 +361,9 @@ let
       assertion =
         importedFunction.documented
         && importedFunction.description == "Summarises the second function, defined in another file."
-        &&
-          (lib.head importedFunction.arguments).argumentType
-          == "the value the function returns, and the doc block bullet wraps onto a second line that the parser joins";
-      message = "a function documented in a file other than the library entry point is found, with its summary and argument types";
+        && (lib.head importedFunction.arguments).argumentType == "anything"
+        && (lib.head importedFunction.arguments).argumentDescription == "the value the function returns";
+      message = "a documented declaration is read from the meta it carries: its description, and each argument's type and description";
     }
     {
       assertion =
@@ -372,10 +371,23 @@ let
         && rfc145Function.description == "Adds two numbers together."
         &&
           (lib.map (arg: arg.argumentType) rfc145Function.arguments) == [
-            "Number"
-            "Number"
+            "signed integer"
+            "signed integer"
+          ]
+        &&
+          (lib.map (arg: arg.argumentDescription) rfc145Function.arguments) == [
+            "left addend"
+            "right addend"
           ];
-      message = "an RFC-145 /** doc comment with a definition-list and a # Type signature is read, its argument types filled positionally from the signature";
+      message = "each argument states the option type it accepts and what it means, so the reader is told how to check a call and what to pass";
+    }
+    {
+      assertion =
+        shadowedFunction.documented
+        &&
+          shadowedFunction.description
+          == "Summarises the shadowed function, whose name also appears as a nested binding above it.";
+      message = "an export whose name also appears as a nested binding elsewhere in the file is documented from its own meta, with no lookup to confuse the two";
     }
     {
       assertion =
@@ -388,9 +400,92 @@ let
     {
       assertion =
         !legacyFunction.documented
-        && lib.elem "legacy: is documented with a `#` line-comment block directly above it, which is not read; the only doc-comment format is the RFC-145 `/** */` block" legacyProblems
-        && lib.elem "legacy: is a function with no documentation block above it, so nothing states what it is for or what it accepts" legacyProblems;
-      message = "a function documented with the former `#` line-comment format is no longer documented, and the documentation check reports it: the parser reads only RFC-145 `/** */` blocks";
+        && lib.elem "undocumented: is a function that declares no meta.description, so nothing states what it is for or what it accepts" legacyProblems;
+      message = "a callable export that declares no meta.description is reported, so prose in a comment cannot stand in for documentation";
+    }
+    {
+      assertion =
+        let
+          entry =
+            let
+              public =
+                indexOf "Public"
+                  (lib.findFirst (
+                    candidate: indexOf "Public" (candidate.sections or [ ]) != null
+                  ) null libraryFunctions.files).sections;
+            in
+            indexOf "readOptions" public.sections;
+          options = indexOf "Options" (indexOf "opts" entry.sections).sections;
+        in
+        entry != null
+        && lib.any (
+          argument: argument.argument == "opts" && argument.argumentType == "submodule"
+        ) entry.arguments
+        && options != null
+        && options.bodyFile != null;
+      message = "an argument whose type is a submodule is documented with the shape of the options it accepts";
+    }
+    {
+      assertion =
+        (inputs.self.lib.internal.buildDocumentedFunction {
+          name = "readOptions";
+          value = functionFixture.readOptions;
+        })
+          {
+            opts.enabled = false;
+          } == false;
+      message = "a documented declaration whose argument is a submodule accepts an option set that satisfies it";
+    }
+    {
+      assertion =
+        !(builtins.tryEval (
+          (inputs.self.lib.internal.buildDocumentedFunction {
+            name = "readOptions";
+            value = functionFixture.readOptions;
+          })
+            {
+              opts.enabled = "yes";
+            }
+        )).success;
+      message = "a documented declaration whose argument is a submodule rejects a mistyped option, so the argument is validated as an option set and not only as an attribute set";
+    }
+    {
+      assertion =
+        let
+          inherit
+            (
+              (inputs.self.lib.internal.documentation (
+                args
+                // {
+                  internalLibrary.plain = x: x;
+                  requireInternalDocumentation = false;
+                }
+              ))
+            )
+            problems
+            ;
+        in
+        !(lib.any (lib.hasInfix "plain") problems);
+      message = "an internal export that declares no meta.description is not reported, because the internal surface may stay opaque";
+    }
+    {
+      assertion =
+        let
+          inherit
+            (
+              (inputs.self.lib.internal.documentation (
+                args
+                // {
+                  internalLibrary.plain = x: x;
+                  requireInternalDocumentation = true;
+                }
+              ))
+            )
+            problems
+            ;
+        in
+        lib.any (lib.hasInfix "plain: is a function that declares no meta.description") problems;
+      message = "a flake that requires internal documentation has an undocumented internal export reported, so the exemption is configurable";
     }
     {
       assertion =
@@ -560,137 +655,50 @@ let
     name = "formatter";
     package = pkgs.hello;
   };
+  functionFixture = import ../fixtures/library/functions.nix { inherit lib; };
   functionPackage = inputs.self.lib.internal.documentFunction {
     fn = inputs.self.lib.internal.mkSection;
     name = "mkSection";
     namespace = "lib.internal";
   };
   importedFunction = inputs.self.lib.internal.documentFunction {
-    fn = { value }: value;
+    fn = functionFixture.second;
     name = "second";
-    source = libraryFixture + "/lib";
+    position = builtins.unsafeGetAttrPos "second" functionFixture;
   };
   indexOf = title: lib.findFirst (section: section.title == title) null;
   internalCalls = lib.filter (
     file: lib.hasInfix "lib.internal" (builtins.readFile file)
   ) templateSources;
   internalFunction = inputs.self.lib.internal.documentFunction {
-    fn = { value }: value;
+    fn = functionFixture.third;
     internal = true;
     name = "third";
-    source = libraryFixture + "/lib";
+    position = builtins.unsafeGetAttrPos "third" functionFixture;
   };
   internalProblems = inputs.self.lib.internal.documentationProblems {
     description = "A flake that exists to check the documentation rules themselves.";
     sections = [ internalFunction ];
   };
   legacyFunction = inputs.self.lib.internal.documentFunction {
-    fn = { value }: value;
-    name = "legacy";
-    source = libraryFixture + "/lib";
+    fn = functionFixture.undocumented;
+    name = "undocumented";
+    position = builtins.unsafeGetAttrPos "undocumented" functionFixture;
   };
   legacyProblems = inputs.self.lib.internal.documentationProblems {
     description = "A flake that exists to check the documentation rules themselves.";
     sections = [ legacyFunction ];
   };
-  libraryFixture = pkgs.runCommand "library-fixture" { } ''
-    mkdir -p $out/lib
-    printf '%s\n' '{ }' > $out/lib/first.nix
-    cat > $out/lib/second.nix <<'EOF'
-    {
-      /**
-        Summarises the second function, defined in another file.
-
-        # Arguments
-
-        - `value`: the value the function returns, and the doc block bullet
-          wraps onto a second line that the parser joins
-      */
-      second = { value }: value;
-
-      /**
-        Summarises the internal function, whose arguments are not documented.
-      */
-      third = { value }: value;
-
-      # Summarises the legacy function, using the former line-comment format.
-      # The parser reads only RFC-145 block comments, so this block is a comment.
-      legacy = { value }: value;
-
-      /**
-        Adds two numbers together.
-
-        # Type
-
-        add :: Number -> Number -> Number
-
-        # Arguments
-
-        a
-        : The first number
-
-        b
-        : The second number
-      */
-      add = a: b: a + b;
-
-      /**
-        The answer to everything.
-
-        # Type
-
-        Int
-      */
-      probeValue = 42;
-
-      /**
-        A value whose documentation states no type.
-      */
-      probeUntyped = 0;
-
-      probeBare = 0;
-
-      /**
-        Returns the nested value unchanged.
-
-        # Type
-
-        nested :: { value :: Any } -> Any
-
-        # Arguments
-
-        - `value`: the value to return
-      */
-      nested = { value }: value;
-
-      /**
-        Option type whose shape the documentation renders.
-
-        # Type
-
-        OptionType
-      */
-      shape = null;
+  libraryFunctions = inputs.self.lib.internal.documentation (
+    args
+    // {
+      library = functionFixture;
     }
-    EOF
-  '';
+  );
   libraryValues = inputs.self.lib.internal.documentation (
     args
     // {
-      library = {
-        probeBare = 0;
-        probeUntyped = 0;
-        probeValue = 42;
-        shape = lib.types.submodule {
-          options.probe.enabled = lib.mkOption {
-            default = false;
-            description = "Whether the probed option is enabled.";
-            type = lib.types.bool;
-          };
-        };
-        types.nested = { value }: value;
-      };
-      librarySource = libraryFixture + "/lib";
+      library = valueFixture;
     }
   );
   renderedNested = inputs.self.lib.internal.renderSection {
@@ -703,9 +711,9 @@ let
     };
   };
   rfc145Function = inputs.self.lib.internal.documentFunction {
-    fn = { a, b }: a + b;
+    fn = functionFixture.add;
     name = "add";
-    source = libraryFixture + "/lib";
+    position = builtins.unsafeGetAttrPos "add" functionFixture;
   };
   runnablePackage = inputs.self.lib.internal.documentPackage {
     name = "runnable";
@@ -713,6 +721,11 @@ let
       meta.mainProgram = "runnable";
     };
 
+  };
+  shadowedFunction = inputs.self.lib.internal.documentFunction {
+    fn = functionFixture.shadowed;
+    name = "shadowed";
+    position = builtins.unsafeGetAttrPos "shadowed" functionFixture;
   };
   splitDocumentation = inputs.self.lib.internal.documentation (
     args
@@ -738,6 +751,7 @@ let
     });
 
   };
+  valueFixture = import ../fixtures/library/values.nix { inherit lib; };
   valueSection =
     let
       file = lib.findFirst (

@@ -42,6 +42,14 @@ let
       message = "a module that defines a systemd unit from a NixOS option is documented with its own options instead of failing to evaluate";
     }
     {
+      assertion =
+        let
+          entry = moduleEntry "withModuleArgs";
+        in
+        entry != null && lib.hasInfix "Builds an import from the flake and its inputs" entry.description;
+      message = "a module that takes the flake and its inputs is documented instead of failing to evaluate";
+    }
+    {
       assertion = indexOf "Options" (moduleEntry "wiringOnly").sections == null;
       message = "a module that declares no options of its own documents no options, rather than the NixOS options it defines";
     }
@@ -667,6 +675,23 @@ let
           default = false;
           type = lib.types.bool;
         };
+      };
+    withModuleArgs =
+      {
+        lib,
+        flake,
+        inputs,
+        ...
+      }:
+      {
+        imports = lib.optional (flake ? outPath) {
+          options.probe-flake.inputCount = inputs.nixpkgs.lib.mkOption {
+            default = builtins.length (builtins.attrNames inputs);
+            description = "Number of inputs the module received from the flake.";
+            type = inputs.nixpkgs.lib.types.int;
+          };
+        };
+        meta.description = "Builds an import from the flake and its inputs, which a blueprint system provides to every module.";
       };
     withoutExample =
       { lib, ... }:

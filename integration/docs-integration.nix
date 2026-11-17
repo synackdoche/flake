@@ -125,8 +125,13 @@ in
     grep -q '#### wired\.certificates$' modules/README.md || fail "all-types: the option a module defaults from a NixOS option is not documented"
     grep -q 'security\.pki\.certificateFiles' modules/README.md || fail "all-types: the defaultText a module states for that option is not rendered"
     grep -q '#### systemd\.' modules/README.md && fail "all-types: the documentation lists NixOS options a module merely defines"
-    grep -q '#### security\.' modules/README.md && fail "all-types: the documentation lists NixOS options a module merely reads"
+    grep -q '#### security\\.' modules/README.md && fail "all-types: the documentation lists NixOS options a module merely reads"
     pass "a module that defines a systemd unit from a NixOS option is documented with its own options only"
+
+    grep -q '^## inputs-aware$' modules/README.md || fail "all-types: modules/README.md does not document a module that takes the flake and its inputs"
+    grep -A12 '^## inputs-aware$' modules/README.md | grep -q 'Builds an import from the flake and its inputs\.' || fail "all-types: a module that takes the flake and its inputs is not documented with its own description"
+    grep -q '#### inputs-aware\\.inputCount$' modules/README.md || fail "all-types: the option a module defaults from the flake inputs is not documented"
+    pass "a module that takes the flake and its inputs is documented from the same arguments a blueprint system provides"
 
     grep -q '^## hello$' packages/README.md || fail "all-types: packages/README.md documents no hello package"
     grep -q '\[packages/hello.nix\](hello.nix)' packages/README.md || fail "all-types: the package has no source link relative to packages/README.md"

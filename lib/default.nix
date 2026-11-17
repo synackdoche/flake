@@ -1,7 +1,11 @@
 { inputs, ... }:
 let
   contributed =
-    pkgs: modules: moduleName:
+    {
+      pkgs,
+      flake ? null,
+    }:
+    modules: moduleName:
     let
       baseline =
         (lib.evalModules {
@@ -9,7 +13,7 @@ let
             harness
             metaOptions
           ];
-          specialArgs = { inherit pkgs; };
+          specialArgs = moduleArgs;
         }).options;
       declaredBy =
         option: lib.any (declared: lib.elem (toString declared) moduleFiles) (option.declarations or [ ]);
@@ -21,7 +25,7 @@ let
                 harness
                 modules.${moduleName}
               ];
-              specialArgs = { inherit pkgs; };
+              specialArgs = moduleArgs;
             }).options
               ? meta.description
           );
@@ -29,7 +33,7 @@ let
         probed.success && probed.value;
       evaluated = lib.evalModules {
         modules = modulesFor;
-        specialArgs = { inherit pkgs; };
+        specialArgs = moduleArgs;
       };
       filesOf =
         value:
@@ -40,6 +44,15 @@ let
           ++ lib.concatMap filesOf (lib.toList (value.imports or [ ]))
         else
           [ ];
+      moduleArgs = {
+        inherit pkgs;
+      }
+      // lib.optionalAttrs (flake != null) {
+        inherit flake;
+        inputs = flake.inputs // {
+          self = flake;
+        };
+      };
       moduleFiles = lib.remove (toString metaOptions) (filesOf modules.${moduleName});
       modulesFor = [ harness ] ++ lib.optional (!declaresMeta) metaOptions ++ [ modules.${moduleName} ];
       ownMeta =
@@ -476,6 +489,7 @@ let
             apps ? { },
             checks ? { },
             configurations ? { },
+            flake ? null,
             formatter ? null,
             internalLibrary ? { },
             library ? { },
@@ -496,6 +510,7 @@ let
                 apps
                 checks
                 configurations
+                flake
                 formatter
                 internalLibrary
                 library
@@ -548,6 +563,10 @@ let
               description = {
                 description = "sentence saying what this flake is for";
                 type = lib.types.str;
+              };
+              flake = {
+                description = "the flake whose modules are documented, supplying the module arguments a blueprint system provides";
+                type = lib.types.nullOr lib.types.attrs;
               };
               formatter = {
                 description = "the derivation exposed as the flake formatter for this system";
@@ -951,6 +970,7 @@ let
             apps ? { },
             checks ? { },
             configurations ? { },
+            flake ? null,
             formatter ? null,
             internalLibrary ? { },
             library ? { },
@@ -961,7 +981,7 @@ let
             url ? "",
           }:
           let
-            contributedFor = contributed pkgs;
+            contributedFor = contributed { inherit flake pkgs; };
             documentSurface =
               {
                 namespace,
@@ -1470,6 +1490,10 @@ let
                 description = "statement of what the flake is for, shown at the top of every document";
                 type = lib.types.str;
               };
+              flake = {
+                description = "the flake whose modules are documented, supplying the module arguments a blueprint system provides";
+                type = lib.types.nullOr lib.types.attrs;
+              };
               formatter = {
                 description = "derivation exposed as the flake formatter, documented as `nix fmt`";
                 type = lib.types.nullOr lib.types.package;
@@ -1556,6 +1580,7 @@ let
           in
           {
             inherit pkgs root system;
+            inherit flake;
             apps = flake.apps.${system} or { };
             checks = if checks == null then flake.checks.${system} or { } else checks;
             configurations = flake.nixosConfigurations or { };
@@ -1779,6 +1804,7 @@ let
             apps ? { },
             checks ? { },
             configurations ? { },
+            flake ? null,
             formatter ? null,
             internalLibrary ? { },
             library ? { },
@@ -1799,6 +1825,7 @@ let
                 apps
                 checks
                 configurations
+                flake
                 internalLibrary
                 formatter
                 library
@@ -1948,6 +1975,10 @@ let
               description = {
                 description = "sentence saying what this flake is for";
                 type = lib.types.str;
+              };
+              flake = {
+                description = "the flake whose modules are documented, supplying the module arguments a blueprint system provides";
+                type = lib.types.nullOr lib.types.attrs;
               };
               formatter = {
                 description = "the derivation exposed as the flake formatter for this system";

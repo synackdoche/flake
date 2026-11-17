@@ -6,7 +6,10 @@
   '';
   inputs = {
     blueprint = {
-      inputs.nixpkgs.follows = "nixpkgs";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+        systems.follows = "systems";
+      };
       url = "github:numtide/blueprint";
     };
     flake-compat.url = "github:NixOS/flake-compat";
@@ -26,6 +29,7 @@
       };
       url = "github:swarsel/pedantix";
     };
+    systems.url = "github:nix-systems/default";
     treefmt-nix = {
       inputs.nixpkgs.follows = "nixpkgs";
       url = "github:numtide/treefmt-nix";
@@ -34,6 +38,7 @@
   outputs =
     { blueprint, ... }@inputs:
     let
+      baseSystems = import inputs.systems;
       docsFor =
         system:
         let
@@ -66,6 +71,7 @@
           defaultsFor =
             system:
             let
+              docs = docsFor system;
               existingChecks = generated.checks.${system} or { };
               formatter =
                 if hasOwnFormatter then
@@ -74,7 +80,7 @@
                   formatterFor pkgs (args.formatterConfig or { });
               pkgs = inputs.nixpkgs.legacyPackages.${system};
               preCommit = own.lib.internal.dev.preCommit {
-                inherit pkgs formatter;
+                inherit docs pkgs formatter;
                 src = self.outPath;
               };
             in
@@ -115,7 +121,7 @@
                   devShellConfig = args.devShellConfig or { };
                   preCommit = existingChecks.pre-commit or preCommit;
                 });
-              packages.docs = (generated.packages.${system} or { }).docs or (docsFor system);
+              packages.docs = (generated.packages.${system} or { }).docs or docs;
             };
           generated = blueprint (
             builtins.removeAttrs args [
@@ -157,7 +163,7 @@
         };
       own = blueprint {
         inherit inputs;
-        systems = [ "x86_64-linux" ];
+        systems = baseSystems;
       };
       strippedMetaOptions = ./lib/meta-options.nix;
     in

@@ -337,6 +337,7 @@ let
           {
             pkgs,
             src,
+            docs ? inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.docs,
             extraHooks ? { },
             formatter ? inputs.self.formatter.${pkgs.stdenv.hostPlatform.system},
           }:
@@ -349,7 +350,7 @@ let
                 echo "docs: nix is not available in this environment, skipping the documentation check"
                 exit 0
               fi
-              exec ${lib.getExe inputs.self.packages.${system}.docs} --check
+              exec ${lib.getExe docs} --check
             '';
             result = inputs.git-hooks.lib.${system}.run {
               inherit src;
@@ -382,6 +383,10 @@ let
           __functor = _self: preCommitImpl;
           meta = {
             args = {
+              docs = {
+                description = "the docs app the docs hook runs to check that the documentation is current and staged";
+                type = lib.types.package;
+              };
               extraHooks = {
                 description = "additional git-hooks definitions merged into the hook set";
                 type = lib.types.attrs;

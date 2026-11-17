@@ -325,6 +325,7 @@ let
             pkgs,
             src,
             extraHooks ? { },
+            formatter ? inputs.self.formatter.${pkgs.stdenv.hostPlatform.system},
           }:
           let
             docsHook = pkgs.writeShellScript "docs-hook" ''
@@ -349,7 +350,7 @@ let
                 };
                 treefmt = {
                   enable = true;
-                  packageOverrides.treefmt = inputs.self.formatter.${system};
+                  packageOverrides.treefmt = formatter;
                 };
               }
               // extraHooks;
@@ -371,6 +372,10 @@ let
               extraHooks = {
                 description = "additional git-hooks definitions merged into the hook set";
                 type = lib.types.attrs;
+              };
+              formatter = {
+                description = "the derivation the treefmt hook runs, so the hook formats with this flake's formatter";
+                type = lib.types.package;
               };
               pkgs = {
                 description = "nixpkgs package set the hooks are taken from";

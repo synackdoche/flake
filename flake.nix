@@ -46,9 +46,9 @@
           };
         };
       formatterFor =
-        pkgs:
+        pkgs: formatterConfig:
         import ./formatter.nix {
-          inherit pkgs;
+          inherit pkgs formatterConfig;
           flake.inputs = {
             inherit (inputs) pedantix treefmt-nix;
           };
@@ -67,13 +67,19 @@
             system:
             let
               existingChecks = generated.checks.${system} or { };
+              formatter =
+                if hasOwnFormatter then
+                  generated.formatter.${system}
+                else
+                  formatterFor pkgs (args.formatterConfig or { });
               pkgs = inputs.nixpkgs.legacyPackages.${system};
               preCommit = own.lib.internal.dev.preCommit {
-                inherit pkgs;
+                inherit pkgs formatter;
                 src = self.outPath;
               };
             in
             {
+              inherit formatter;
               checks =
                 { }
                 // lib.optionalAttrs (!(existingChecks ? readme)) {
@@ -101,10 +107,9 @@
                   inherit pkgs;
                   preCommit = existingChecks.pre-commit or preCommit;
                 });
-              formatter = formatterFor pkgs;
               packages.docs = (generated.packages.${system} or { }).docs or (docsFor system);
             };
-          generated = blueprint args;
+          generated = blueprint (builtins.removeAttrs args [ "formatterConfig" ]);
           hasOwnFormatter = builtins.pathExists (self.outPath + "/formatter.nix");
           self = args.inputs.self;
         in
@@ -116,11 +121,7 @@
           devShells =
             (generated.devShells or { })
             // lib.mapAttrs (system: d: (generated.devShells.${system} or { }) // d.devShells) defaults;
-          formatter =
-            (generated.formatter or { })
-            // lib.mapAttrs (
-              system: d: if hasOwnFormatter then generated.formatter.${system} else d.formatter
-            ) defaults;
+          formatter = (generated.formatter or { }) // lib.mapAttrs (_system: d: d.formatter) defaults;
           nixosConfigurations = lib.mapAttrs (
             _name: configuration:
             configuration.extendModules {

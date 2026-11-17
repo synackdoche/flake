@@ -38,6 +38,18 @@ Checks that the generated documentation is complete and usable, and that incompl
 
 *Source:* [checks/docs-introspection.nix](docs-introspection.nix)
 
+## formatter-config
+
+```sh
+nix build .#checks.x86_64-linux.formatter-config
+```
+
+*Type:* derivation
+
+Checks that an evalModule-shaped formatterConfig is merged into the canonical formatter and that the pre-commit hook runs the resulting formatter.
+
+*Source:* [checks/formatter-config.nix](formatter-config.nix)
+
 ## messages
 
 ```sh

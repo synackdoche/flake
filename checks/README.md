@@ -26,6 +26,18 @@ Checks that option descriptions are present, long enough to state a contract, un
 
 *Source:* [checks/descriptions.nix](descriptions.nix)
 
+## dev-shell-config
+
+```sh
+nix build .#checks.x86_64-linux.dev-shell-config
+```
+
+*Type:* derivation
+
+Checks that an evalModule-shaped devShellConfig is merged into the default development shell and that its packages and shell hook survive.
+
+*Source:* [checks/dev-shell-config.nix](dev-shell-config.nix)
+
 ## docs-introspection
 
 ```sh

@@ -19,6 +19,7 @@ shared formatter, pre-commit, docgate checks and flake scaffolding
 
 - [assertions](checks/README.md#assertions) — Checks that an assertion keeps its condition and states the violation, the expectation and the fix.
 - [descriptions](checks/README.md#descriptions) — Checks that option descriptions are present, long enough to state a contract, unique, and free of other components of this flake.
+- [dev-shell-config](checks/README.md#dev-shell-config) — Checks that an evalModule-shaped devShellConfig is merged into the default development shell and that its packages and shell hook survive.
 - [docs-introspection](checks/README.md#docs-introspection) — Checks that the generated documentation is complete and usable, and that incomplete documentation is reported.
 - [flake-inputs](checks/README.md#flake-inputs) — Fails a flake whose flake.lock pins a path input that resolves outside the repository.
 - [formatter-config](checks/README.md#formatter-config) — Checks that an evalModule-shaped formatterConfig is merged into the canonical formatter and that the pre-commit hook runs the resulting formatter.

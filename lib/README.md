@@ -581,17 +581,18 @@ Writes one document: a heading, the statement of purpose, and the sections rende
 ### dev
 
 ```nix
-lib.internal.shells.dev { pkgs, preCommit }
+lib.internal.shells.dev { devShellConfig, pkgs, preCommit }
 ```
 
 *Type:* function
 
 *Arguments:*
 
+- `devShellConfig` (`*attribute set*`): evalModule-shaped configuration merged into the default development shell
 - `pkgs` (`*attribute set*`): nixpkgs package set the shell is built with
 - `preCommit` (`*attribute set*`): pre-commit check whose packages and hook the shell exposes
 
 Shell environment carrying the formatter's packages and its shell hook.
 
-*Source:* [lib/default.nix:2409](default.nix)
+*Source:* [lib/default.nix:2435](default.nix)
 

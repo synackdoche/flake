@@ -316,6 +316,19 @@ in
     echo "$clientFormatterDescription" | grep -q 'canonical configuration' \
       || fail "a client without formatter.nix does not format with this flake's canonical configuration: $clientFormatterDescription"
     pass "a client that states no formatter.nix formats with this flake's canonical configuration, not a second one"
+
+    sed -i "s|      flakeInputs.ignore = \[ \"synackdoche-flake\" \];|      devShellConfig.shellHook = \"export DEVSHELL_PROBE=1\";\n      flakeInputs.ignore = [ \"synackdoche-flake\" ];|" flake.nix
+    shellHook=$(nix eval --raw ".#devShells.$system.default.shellHook" 2>/dev/null) \
+      || fail "the client's default devShell does not evaluate"
+    echo "$shellHook" | grep -q 'DEVSHELL_PROBE=1' \
+      || fail "a client's devShellConfig shellHook is not merged into its default devShell: $shellHook"
+    echo "$shellHook" | grep -q 'git-hooks' \
+      || fail "a client's devShellConfig replaced the pre-commit shell hook instead of merging with it: $shellHook"
+    shellInputs=$(nix eval --json ".#devShells.$system.default.buildInputs" --apply 'ps: map (p: p.name) ps' 2>/dev/null) \
+      || fail "the client's default devShell states no buildInputs"
+    echo "$shellInputs" | grep -q 'treefmt' \
+      || fail "a client's devShellConfig dropped the formatter's packages from the default devShell: $shellInputs"
+    pass "a client's devShellConfig merges into the default devShell, keeping the pre-commit packages and hook"
     nix eval ".#devShells.$system.default" --apply 'd: d ? outPath' 2>/dev/null \
       || fail "the callable flake does not mix in the default devshell"
     checks=$(nix eval --json ".#checks.$system" --apply 'builtins.attrNames') \

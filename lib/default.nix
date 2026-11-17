@@ -2397,10 +2397,36 @@ let
     shells =
       let
         devImpl =
-          { pkgs, preCommit }:
+          {
+            pkgs,
+            preCommit,
+            devShellConfig ? { },
+          }:
+          let
+            evaluated = lib.evalModules {
+              modules = [
+                {
+                  config = {
+                    inherit (preCommit) shellHook;
+                    buildInputs = preCommit.enabledPackages;
+                  };
+                  options = {
+                    buildInputs = lib.mkOption {
+                      description = "Packages placed on the development shell's PATH.";
+                      type = lib.types.listOf lib.types.package;
+                    };
+                    shellHook = lib.mkOption {
+                      description = "Shell commands run when the development shell is entered.";
+                      type = lib.types.lines;
+                    };
+                  };
+                }
+                devShellConfig
+              ];
+            };
+          in
           pkgs.mkShell {
-            inherit (preCommit) shellHook;
-            buildInputs = preCommit.enabledPackages;
+            inherit (evaluated.config) buildInputs shellHook;
           };
       in
       {
@@ -2408,6 +2434,10 @@ let
           __functor = _self: devImpl;
           meta = {
             args = {
+              devShellConfig = {
+                description = "evalModule-shaped configuration merged into the default development shell";
+                type = lib.types.attrs;
+              };
               pkgs = {
                 description = "nixpkgs package set the shell is built with";
                 type = lib.types.attrs;

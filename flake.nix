@@ -112,14 +112,16 @@
               devShells.default =
                 (generated.devShells.${system} or { }).default or (own.lib.internal.shells.dev {
                   inherit pkgs;
+                  devShellConfig = args.devShellConfig or { };
                   preCommit = existingChecks.pre-commit or preCommit;
                 });
               packages.docs = (generated.packages.${system} or { }).docs or (docsFor system);
             };
           generated = blueprint (
             builtins.removeAttrs args [
-              "formatterConfig"
+              "devShellConfig"
               "flakeInputs"
+              "formatterConfig"
             ]
           );
           hasOwnFormatter = builtins.pathExists (self.outPath + "/formatter.nix");

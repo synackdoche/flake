@@ -1698,6 +1698,78 @@ let
               meta.description = "Checks that the documentation of the flake is complete: every output states what it is and how to use it, and every public library function is documented.";
               name = "docgate-documentation";
             };
+        flakeInputsImpl =
+          {
+            pkgs,
+            root,
+            ignore ? [ ],
+          }:
+          let
+            goPath =
+              acc: segments:
+              if segments == [ ] then
+                acc
+              else
+                let
+                  here = lib.head segments;
+                  rest = lib.tail segments;
+                in
+                if here == "." || here == "" then
+                  goPath acc rest
+                else if here == ".." then
+                  goPath (lib.drop 1 acc) rest
+                else
+                  goPath (acc ++ [ here ]) rest;
+            insideRoot = targetSegments: lib.lists.take (lib.length rootParts) targetSegments == rootParts;
+            listed = lib.concatMapStrings (input: "  - ${input.name}: path:${input.path}\n") outside;
+            lockPath = "${toString root}/flake.lock";
+            outside = lib.filter (
+              { path, ... }:
+              !(insideRoot (resolveToSegments path))
+            ) pathInputs;
+            pathInputs =
+              let
+                hasRoot = lock ? root && lock.nodes ? root;
+                inputs = if hasRoot then (lock.nodes.${lock.root}.inputs or { }) else { };
+                lock = if builtins.pathExists lockPath then builtins.fromJSON (builtins.readFile lockPath) else { };
+              in
+              lib.concatLists (
+                lib.mapAttrsToList (
+                  name: key:
+                  let
+                    isDirect = builtins.isString key && hasRoot;
+                    locked = node.locked or { };
+                    node = lock.nodes.${key} or { };
+                  in
+                  lib.optional (isDirect && (locked.type or "") == "path" && !(lib.elem name ignore)) {
+                    inherit (locked) path;
+                    inherit name;
+                  }
+                ) inputs
+              );
+            resolveToSegments =
+              path:
+              if builtins.match "^/.*" path != null then
+                goPath [ ] (lib.splitString "/" path)
+              else
+                goPath rootParts (lib.splitString "/" path);
+            rootParts =
+              let
+                segs = lib.splitString "/" (toString root);
+              in
+              lib.filter (segment: segment != "") segs;
+          in
+          if outside == [ ] then
+            pkgs.stdenv.mkDerivation {
+              buildCommand = ''
+                echo "all locked inputs resolve inside ${toString root}"
+                touch $out
+              '';
+              meta.description = "Fails a flake whose flake.lock pins a path input that resolves outside the repository.";
+              name = "docgate-flake-inputs";
+            }
+          else
+            throw "flake.lock pins path inputs that resolve outside the repository (they build only here):\n${listed}";
         readmeImpl =
           {
             pkgs,
@@ -1835,6 +1907,26 @@ let
               };
             };
             description = "Fails evaluation when the documentation of a flake is incomplete, so a repository can make its documentation a check instead of a convention.";
+          };
+        };
+        flakeInputs = {
+          __functor = _self: flakeInputsImpl;
+          meta = {
+            args = {
+              ignore = {
+                description = "input names exempted from the check, for inputs that are intentionally the local working copy of another repository";
+                type = lib.types.listOf lib.types.str;
+              };
+              pkgs = {
+                description = "nixpkgs package set for the system the check is built on";
+                type = lib.types.attrs;
+              };
+              root = {
+                description = "repository root whose flake.lock is inspected";
+                type = lib.types.path;
+              };
+            };
+            description = "Fails a flake whose flake.lock pins a path input that resolves outside the repository, because such a flake builds only where that path exists.";
           };
         };
         readme = {

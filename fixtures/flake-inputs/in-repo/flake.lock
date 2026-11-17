@@ -1,0 +1,23 @@
+{
+  "nodes": {
+    "child": {
+      "flake": false,
+      "locked": {
+        "path": "./child",
+        "type": "path"
+      },
+      "original": {
+        "path": "./child",
+        "type": "path"
+      },
+      "parent": []
+    },
+    "root": {
+      "inputs": {
+        "child": "child"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

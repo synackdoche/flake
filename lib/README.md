@@ -383,7 +383,25 @@ lib.internal.gate.docs { checks, flake, pkgs, root }
 
 Fails evaluation when the documentation of a flake is incomplete, so a repository can make its documentation a check instead of a convention.
 
-*Source:* [lib/default.nix:1818](default.nix)
+*Source:* [lib/default.nix:1890](default.nix)
+
+### flakeInputs
+
+```nix
+lib.internal.gate.flakeInputs { ignore, pkgs, root }
+```
+
+*Type:* function
+
+*Arguments:*
+
+- `ignore` (`*list of string*`): input names exempted from the check, for inputs that are intentionally the local working copy of another repository
+- `pkgs` (`*attribute set*`): nixpkgs package set for the system the check is built on
+- `root` (`*absolute path*`): repository root whose flake.lock is inspected
+
+Fails a flake whose flake.lock pins a path input that resolves outside the repository, because such a flake builds only where that path exists.
+
+*Source:* [lib/default.nix:1914](default.nix)
 
 ### readme
 
@@ -413,7 +431,7 @@ lib.internal.gate.readme { apps, checks, configurations, description, formatter,
 
 Fails when a committed README differs from the generated documentation, or when README.md and checks/README.md disagree about a check.
 
-*Source:* [lib/default.nix:1842](default.nix)
+*Source:* [lib/default.nix:1934](default.nix)
 
 ## message
 
@@ -435,7 +453,7 @@ lib.internal.message.assertion { at, condition, expected, fix, violation }
 
 Builds an assertion record whose message states the violation, what was expected and how to fix it.
 
-*Source:* [lib/default.nix:1956](default.nix)
+*Source:* [lib/default.nix:2048](default.nix)
 
 ### problems
 
@@ -452,7 +470,7 @@ lib.internal.message.problems { assertions, options }
 
 Reports assertion messages that do not name a declared option, or that omit the expected value and the fix.
 
-*Source:* [lib/default.nix:1984](default.nix)
+*Source:* [lib/default.nix:2076](default.nix)
 
 ## section
 
@@ -472,7 +490,7 @@ lib.internal.section.group { body, sections, title }
 
 Groups child sections under one title, for a part of the document that is itself not a usable thing.
 
-*Source:* [lib/default.nix:2160](default.nix)
+*Source:* [lib/default.nix:2252](default.nix)
 
 ### make
 
@@ -502,7 +520,7 @@ lib.internal.section.make { arguments, body, bodyFile, description, documented, 
 
 One documented thing: what it is, how to call or import it, what its arguments are and any child sections.
 
-*Source:* [lib/default.nix:2180](default.nix)
+*Source:* [lib/default.nix:2272](default.nix)
 
 ### render
 
@@ -520,7 +538,7 @@ lib.internal.section.render { depth, fromDir, s }
 
 Renders a list of sections into a README derivation.
 
-*Source:* [lib/default.nix:2248](default.nix)
+*Source:* [lib/default.nix:2340](default.nix)
 
 ### tests
 
@@ -536,7 +554,7 @@ lib.internal.section.tests { tests }
 
 Renders the test links of a section: a markdown link when the check is documented, plain text when it is not.
 
-*Source:* [lib/default.nix:2268](default.nix)
+*Source:* [lib/default.nix:2360](default.nix)
 
 ### write
 
@@ -556,7 +574,7 @@ lib.internal.section.write { description, fromDir, name, pkgs, sections }
 
 Writes one document: a heading, the statement of purpose, and the sections rendered in order.
 
-*Source:* [lib/default.nix:2278](default.nix)
+*Source:* [lib/default.nix:2370](default.nix)
 
 ## shells
 
@@ -575,5 +593,5 @@ lib.internal.shells.dev { pkgs, preCommit }
 
 Shell environment carrying the formatter's packages and its shell hook.
 
-*Source:* [lib/default.nix:2317](default.nix)
+*Source:* [lib/default.nix:2409](default.nix)
 

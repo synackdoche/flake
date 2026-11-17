@@ -298,6 +298,8 @@ in
 
     sed -i "s|url = \"github:synackdoche/flake\";|url = \"path:$repo\";|" flake.nix
     grep -q "url = \"path:$repo\";" flake.nix || fail "the template input could not be pointed at this flake"
+    sed -i "s|inherit inputs;|inherit inputs;\n      flakeInputs.ignore = [ \"synackdoche-flake\" ];|" flake.nix
+    grep -q 'flakeInputs.ignore = \[ "synackdoche-flake" \]' flake.nix || fail "the pointed-at-this-flake client does not exempt its base input"
     rm -f flake.lock
     git init -q
     git add -A
@@ -318,7 +320,7 @@ in
       || fail "the callable flake does not mix in the default devshell"
     checks=$(nix eval --json ".#checks.$system" --apply 'builtins.attrNames') \
       || fail "the callable flake produces no checks output in the client"
-    for check in readme pre-commit documentation; do
+    for check in readme pre-commit documentation flake-inputs; do
       echo "$checks" | grep -q "\"$check\"" || fail "the callable flake does not mix in the $check check: $checks"
     done
     pass "the callable flake mixes in the default formatter, docs package, devshell and checks"
@@ -332,11 +334,11 @@ in
     commit "generated documentation"
     pass "the instantiated template commits its generated documentation"
 
-    for check in documentation readme pre-commit; do
+    for check in documentation readme pre-commit flake-inputs; do
       nix build --no-link ".#checks.$system.$check" > "$work/$check.log" 2>&1 \
         || fail "the instantiated template fails its $check check: $(tail -3 "$work/$check.log")"
     done
-    pass "the instantiated template passes its documentation, readme and pre-commit checks"
+    pass "the instantiated template passes its documentation, readme, pre-commit and flake-inputs checks"
 
     mkdir "$work/override"
     cd "$work/override"

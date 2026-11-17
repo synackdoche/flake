@@ -1,0 +1,24 @@
+{
+  "nodes": {
+    "outside": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1794936118,
+        "narHash": "sha256-yNsU1inacc0nL6LcozVwxU3YU937n9yGK0ifKcstsmw=",
+        "path": "/tmp/outsiderepo",
+        "type": "path"
+      },
+      "original": {
+        "path": "/tmp/outsiderepo",
+        "type": "path"
+      }
+    },
+    "root": {
+      "inputs": {
+        "outside": "outside"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

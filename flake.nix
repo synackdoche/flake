@@ -101,6 +101,13 @@
                     flake = self;
                     root = self.outPath;
                   };
+                }
+                // lib.optionalAttrs (!(existingChecks ? "flake-inputs")) {
+                  flake-inputs = own.lib.internal.gate.flakeInputs {
+                    inherit pkgs;
+                    ignore = (args.flakeInputs or { }).ignore or [ ];
+                    root = self.outPath;
+                  };
                 };
               devShells.default =
                 (generated.devShells.${system} or { }).default or (own.lib.internal.shells.dev {
@@ -109,7 +116,12 @@
                 });
               packages.docs = (generated.packages.${system} or { }).docs or (docsFor system);
             };
-          generated = blueprint (builtins.removeAttrs args [ "formatterConfig" ]);
+          generated = blueprint (
+            builtins.removeAttrs args [
+              "formatterConfig"
+              "flakeInputs"
+            ]
+          );
           hasOwnFormatter = builtins.pathExists (self.outPath + "/formatter.nix");
           self = args.inputs.self;
         in

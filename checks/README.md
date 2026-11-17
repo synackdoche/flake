@@ -38,6 +38,18 @@ Checks that the generated documentation is complete and usable, and that incompl
 
 *Source:* [checks/docs-introspection.nix](docs-introspection.nix)
 
+## flake-inputs
+
+```sh
+nix build .#checks.x86_64-linux.flake-inputs
+```
+
+*Type:* derivation
+
+Fails a flake whose flake.lock pins a path input that resolves outside the repository.
+
+*Source:* [checks/flake-inputs.nix](flake-inputs.nix)
+
 ## formatter-config
 
 ```sh

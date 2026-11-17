@@ -11,6 +11,7 @@
     inputs:
     inputs.synackdoche-flake {
       inherit inputs;
+      flakeInputs.ignore = [ "synackdoche-flake" ];
       systems = [ "x86_64-linux" ];
     };
 }

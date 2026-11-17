@@ -9,13 +9,18 @@
       inputs.nixpkgs.follows = "nixpkgs";
       url = "github:numtide/blueprint";
     };
+    flake-compat.url = "github:NixOS/flake-compat";
     git-hooks = {
-      inputs.nixpkgs.follows = "nixpkgs";
+      inputs = {
+        flake-compat.follows = "flake-compat";
+        nixpkgs.follows = "nixpkgs";
+      };
       url = "github:cachix/git-hooks.nix";
     };
     nixpkgs.url = "github:synackdoche/nixpkgs/nixos-26.05";
     pedantix = {
       inputs = {
+        git-hooks-nix.inputs.flake-compat.follows = "flake-compat";
         nixpkgs.follows = "nixpkgs";
         treefmt-nix.follows = "treefmt-nix";
       };

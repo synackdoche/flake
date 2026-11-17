@@ -7,7 +7,16 @@ let
     exec ${treefmtEval.config.build.wrapper}/bin/treefmt --no-cache "$@"
   '';
   treefmtEval = flake.inputs.treefmt-nix.lib.evalModule pkgs {
-    imports = [ flake.inputs.pedantix.treefmtModules.default ];
+    imports = [
+      flake.inputs.pedantix.treefmtModules.default
+      {
+        options.programs.flake-edit.settings.follow.transitive_min = pkgs.lib.mkOption {
+          default = 2;
+          description = "The minimum number of transitive dependencies to follow when editing a flake.";
+          type = pkgs.lib.types.int;
+        };
+      }
+    ];
     programs = {
       deadnix.enable = true;
       flake-edit.enable = true;

@@ -125,12 +125,13 @@ in
     grep -q '#### wired\.certificates$' modules/README.md || fail "all-types: the option a module defaults from a NixOS option is not documented"
     grep -q 'security\.pki\.certificateFiles' modules/README.md || fail "all-types: the defaultText a module states for that option is not rendered"
     grep -q '#### systemd\.' modules/README.md && fail "all-types: the documentation lists NixOS options a module merely defines"
-    grep -q '#### security\\.' modules/README.md && fail "all-types: the documentation lists NixOS options a module merely reads"
+    grep -q '#### security\.' modules/README.md && fail "all-types: the documentation lists NixOS options a module merely reads"
     pass "a module that defines a systemd unit from a NixOS option is documented with its own options only"
 
     grep -q '^## inputs-aware$' modules/README.md || fail "all-types: modules/README.md does not document a module that takes the flake and its inputs"
     grep -A12 '^## inputs-aware$' modules/README.md | grep -q 'Builds an import from the flake and its inputs\.' || fail "all-types: a module that takes the flake and its inputs is not documented with its own description"
-    grep -q '#### inputs-aware\\.inputCount$' modules/README.md || fail "all-types: the option a module defaults from the flake inputs is not documented"
+    grep -q '#### inputs-aware\.inputCount$' modules/README.md \
+      || fail "all-types: the option a module defaults from the flake inputs is not documented: $(sed -n '/^## inputs-aware$/,/^## /p' modules/README.md)"
     pass "a module that takes the flake and its inputs is documented from the same arguments a blueprint system provides"
 
     grep -q '^## hello$' packages/README.md || fail "all-types: packages/README.md documents no hello package"
@@ -170,6 +171,13 @@ in
     grep -q 'packages/README.md#hello' README.md || fail "all-types: the root index does not link to the package"
     grep -q '\(lib\|modules\|systems\|templates\)/README.md#double' README.md || fail "all-types: the root index does not link to the function"
     pass "the docs cover a module, a system, a lib function, a package and a template, each in a single group file with a source link"
+
+    grep -q '^## Usage$' README.md || fail "all-types: the client's own functor is not documented in its README"
+    grep -A4 '^## Usage$' README.md | grep -q 'inputs.<flake> { probe }' \
+      || fail "all-types: the client's functor is not documented with its own call shape: $(sed -n '/^## Usage$/,/^## /p' README.md)"
+    grep -q 'preCommitHooks' README.md \
+      && fail "all-types: the README documents the base flake's functor arguments, which the client does not accept"
+    pass "a client's own functor is documented with its own call shape, and the base flake's functor is not documented there"
   '';
   check-mode = suite "check-mode" ''
     cd "$repo"
@@ -355,6 +363,16 @@ in
     echo "$shellInputs" | grep -q 'treefmt' \
       || fail "a client's devShellConfig dropped the formatter's packages from the default devShell: $shellInputs"
     pass "a client's devShellConfig merges into the default devShell, keeping the pre-commit packages and hook"
+
+    sed -i "s|      inherit inputs;|      inherit inputs;\n      undeclared = 1;|" flake.nix
+    if out=$(nix eval --raw ".#devShells.$system.default.shellHook" 2>&1); then
+      fail "a client can pass an argument the functor does not declare"
+    fi
+    case "$out" in
+      *"unexpected argument 'undeclared'"*) pass "a client's call is checked against the arguments the functor declares" ;;
+      *) fail "the undeclared argument was not rejected by the call shape: $out" ;;
+    esac
+    sed -i "/undeclared = 1;/d" flake.nix
     nix eval ".#devShells.$system.default" --apply 'd: d ? outPath' 2>/dev/null \
       || fail "the callable flake does not mix in the default devshell"
     checks=$(nix eval --json ".#checks.$system" --apply 'builtins.attrNames') \
@@ -367,7 +385,11 @@ in
     nix run .#docs > /dev/null 2>&1 || fail "the docs app failed in the instantiated template"
     [ -f README.md ] || fail "the instantiated template produced no README"
     grep -q 'Minimal repository' README.md || fail "the instantiated template README does not carry its description"
-    pass "nix run .#docs works in the instantiated template"
+    grep -q '^## Usage$' README.md \
+      && fail "the instantiated template documents a functor although it defines none"
+    grep -q 'preCommitHooks' README.md \
+      && fail "the instantiated template documents the base flake's functor arguments"
+    pass "a client that defines no functor of its own gets no Usage section, so the base flake's call shape stays in its own README"
 
     git add -A
     commit "generated documentation"

@@ -1,5 +1,22 @@
 { inputs, ... }:
 let
+  argumentsOf =
+    declared:
+    let
+      describe = spec: if builtins.isAttrs (spec.type or null) then spec.type.description or "" else "";
+      specList =
+        if builtins.isAttrs (declared.args or null) then
+          lib.mapAttrsToList (name: spec: spec // { inherit name; }) declared.args
+        else if builtins.isList (declared.args or null) then
+          declared.args
+        else
+          [ ];
+    in
+    map (spec: {
+      argument = spec.name;
+      argumentDescription = spec.description or "";
+      argumentType = describe spec;
+    }) specList;
   contributed =
     {
       pkgs,
@@ -692,38 +709,19 @@ let
             sections ? [ ],
           }:
           let
+            arguments = argumentsOf declared;
             declared = if builtins.isAttrs fn then fn.meta or null else null;
-            describe = spec: if builtins.isAttrs (spec.type or null) then spec.type.description or "" else "";
-            metaArguments =
-              if declared == null then
-                [ ]
-              else if builtins.isList (declared.args or null) then
-                map (spec: {
-                  argument = spec.name;
-                  argumentDescription = spec.description or "";
-                  argumentType = describe spec;
-                }) declared.args
-              else if builtins.isAttrs (declared.args or null) then
-                lib.mapAttrsToList (argument: spec: {
-                  inherit argument;
-                  argumentDescription = spec.description or "";
-                  argumentType = describe spec;
-                }) declared.args
-              else
-                [ ];
             signature =
               if declared == null then
                 ""
-              else if builtins.isList (declared.args or null) then
-                lib.concatStringsSep " " (map (spec: spec.name) declared.args)
               else if builtins.isAttrs (declared.args or null) then
-                "{ ${lib.concatStringsSep ", " (builtins.attrNames declared.args)} }"
+                "{ ${lib.concatStringsSep ", " (map (argument: argument.argument) arguments)} }"
               else
-                "";
+                lib.concatStringsSep " " (map (argument: argument.argument) arguments);
           in
           section.make {
             inherit internal sections;
-            arguments = metaArguments;
+            inherit arguments;
             description = declared.description or "";
             documented = declared != null && declared ? description;
             kind = "function";
@@ -1107,6 +1105,21 @@ let
               };
               sections = group.entries;
             }) groupDocuments;
+            functorArguments = argumentsOf functorMeta;
+            functorMeta =
+              if builtins.isAttrs flake && (flake.meta.args or null) != null then flake.meta else null;
+            functorSection = lib.optional (functorMeta != null) (
+              section.make {
+                arguments = functorArguments;
+                description = functorMeta.description or "";
+                language = "nix";
+                title = "Usage";
+                type = "function";
+                usage = "inputs.<flake> { ${
+                  lib.concatStringsSep ", " (map (argument: argument.argument) functorArguments)
+                } }";
+              }
+            );
             groupDocuments =
               let
                 declared = [
@@ -1329,7 +1342,8 @@ let
               else
                 toString file;
             sections =
-              groupSummaryOf "Templates"
+              functorSection
+              ++ groupSummaryOf "Templates"
               ++ groupSummaryOf "Apps"
               ++ groupSummaryOf "Systems"
               ++ groupSummaryOf "Modules"

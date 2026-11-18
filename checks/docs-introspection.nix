@@ -343,6 +343,32 @@ let
     }
     {
       assertion =
+        let
+          section = indexOf "Usage" documentation.sections;
+        in
+        section != null
+        && section.type == "function"
+        && section.language == "nix"
+        && lib.hasPrefix "inputs.<flake> {" section.usage
+        && lib.all (argument: lib.hasInfix argument.argument section.usage) section.arguments
+        && map (argument: argument.argument) section.arguments == builtins.attrNames inputs.self.meta.args
+        && lib.all (
+          argument: argument.argumentType != "" && argument.argumentDescription != ""
+        ) section.arguments;
+      message = "the flake's own call shape is documented as a Usage section, with every argument its functor declares, each stating a type and what it means";
+    }
+    {
+      assertion =
+        let
+          section =
+            indexOf "Usage"
+              (inputs.self.lib.internal.documentation.build (args // { flake = null; })).sections;
+        in
+        section == null;
+      message = "a flake whose functor declares no meta.args gets no Usage section, so stray metadata cannot invent a call shape";
+    }
+    {
+      assertion =
         renderedNested == [
           "printf '%s\n\n' '### probe' >> $out/README.md"
           "printf '```%s\n%s\n```\n\n' sh 'nix run .#probe' >> $out/README.md"
@@ -571,6 +597,7 @@ let
     else
       lib.filter (line: lib.hasPrefix "- [" line) (lib.splitString "\n" group.body);
   canonicalOrder = [
+    "Usage"
     "Templates"
     "Apps"
     "Systems"

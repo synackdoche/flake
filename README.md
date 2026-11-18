@@ -2,6 +2,25 @@
 
 shared formatter, pre-commit, docgate checks and flake scaffolding
 
+## Usage
+
+```nix
+inputs.<flake> { devShellConfig, flakeInputs, formatterConfig, inputs, preCommitHooks, systems }
+```
+
+*Type:* function
+
+*Arguments:*
+
+- `devShellConfig` (`*attribute set*`): evalModule-shaped configuration merged into the default development shell, so a client adds packages or a shell hook
+- `flakeInputs` (`*attribute set*`): settings of the flake-inputs gate, whose ignore list names inputs allowed to resolve outside the repository
+- `formatterConfig` (`*attribute set*`): evalModule-shaped treefmt configuration merged into the canonical formatter
+- `inputs` (`*attribute set*`): the client flake's inputs, which the mixin reads for the client's own outputs and nixpkgs
+- `preCommitHooks` (`*function that evaluates to a(n) (attribute set)*`): function of the system's package set returning git-hooks definitions merged into the pre-commit hook set
+- `systems` (`*list of string*`): systems the mixin emits outputs for, empty when the client states none
+
+Mixes the shared formatter, pre-commit hook set, documentation gate, checks and development shell into a client flake.
+
 ## Templates
 
 - [minimal](templates/README.md#minimal) — Minimal repository — the smallest flake that uses the SYNACKDOCHE base flake

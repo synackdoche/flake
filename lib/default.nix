@@ -63,6 +63,10 @@ let
           [ ];
       moduleArgs = {
         inherit pkgs;
+        # NixOS supplies this through `specialArgs` when it evaluates a real
+        # system; the documentation harness must match, or a module that imports
+        # a profile resolves `modulesPath` through `_module.args` and recurses.
+        modulesPath = "${inputs.nixpkgs.outPath}/nixos/modules";
       }
       // lib.optionalAttrs (flake != null) {
         inherit flake;

@@ -20,10 +20,15 @@ let
   contributed =
     {
       pkgs,
+      class ? "nixos",
       flake ? null,
     }:
     modules: moduleName:
     let
+      attempts = map (m: {
+        inherit m;
+        ok = (builtins.tryEval (documents m)).success;
+      }) candidates;
       baseline =
         (lib.evalModules {
           modules = [
@@ -32,6 +37,16 @@ let
           ];
           specialArgs = moduleArgs;
         }).options;
+      candidates = [
+        (withMeta [ modules.${moduleName} ])
+      ]
+      ++ lib.optional (moduleName != "configuration" && modules ? configuration) (withMeta [
+        modules.configuration
+        modules.${moduleName}
+      ])
+      ++ lib.optional (builtins.length (builtins.attrNames modules) > 1) (
+        withMeta ((lib.attrValues (lib.removeAttrs modules [ moduleName ])) ++ [ modules.${moduleName} ])
+      );
       declaredBy =
         option: lib.any (declared: lib.elem (toString declared) moduleFiles) (option.declarations or [ ]);
       declaresMeta =
@@ -48,10 +63,38 @@ let
           );
         in
         probed.success && probed.value;
-      evaluated = lib.evalModules {
-        modules = modulesFor;
-        specialArgs = moduleArgs;
-      };
+      # Consumers apply the flake's own overlays before evaluating its modules,
+      # so the documentation harness must too: without them a module's option
+      # defaults cannot be rendered, and the fallback chain below has nothing to
+      # fall back to.
+      documentedPkgs =
+        if flake == null || !(flake ? overlays) || flake.overlays == { } then
+          pkgs
+        else
+          import inputs.nixpkgs {
+            config = pkgs.config or { };
+            overlays = lib.attrValues flake.overlays;
+            system = pkgs.stdenv.hostPlatform.system;
+          };
+      # Force what the documentation renders, so a scope that cannot be
+      # documented is detected before it is chosen.
+      documents =
+        m:
+        let
+          described = ownMetaOf evaluated "description";
+          evaluated = evaluate m;
+        in
+        lib.concatStringsSep "\n" [
+          (optionMarkdown 2 (scopedIn evaluated.options baseline))
+          (if described == null then "" else described)
+        ];
+      evaluate =
+        m:
+        lib.evalModules {
+          modules = m;
+          specialArgs = moduleArgs;
+        };
+      evaluated = evaluate modulesFor;
       filesOf =
         value:
         if builtins.isString value || builtins.isPath value then
@@ -61,12 +104,15 @@ let
           ++ lib.concatMap filesOf (lib.toList (value.imports or [ ]))
         else
           [ ];
+      harness =
+        harnesses.${class}
+          or (throw "no documentation harness for module class `${class}`: only ${lib.concatStringsSep ", " (builtins.attrNames harnesses)} are supported");
       moduleArgs = {
-        inherit pkgs;
         # NixOS supplies this through `specialArgs` when it evaluates a real
         # system; the documentation harness must match, or a module that imports
         # a profile resolves `modulesPath` through `_module.args` and recurses.
         modulesPath = "${inputs.nixpkgs.outPath}/nixos/modules";
+        pkgs = documentedPkgs;
       }
       // lib.optionalAttrs (flake != null) {
         inherit flake;
@@ -75,9 +121,10 @@ let
         };
       };
       moduleFiles = lib.remove (toString metaOptions) (filesOf modules.${moduleName});
-      modulesFor = [ harness ] ++ lib.optional (!declaresMeta) metaOptions ++ [ modules.${moduleName} ];
-      ownMeta =
-        attribute:
+      modulesFor = (lib.findFirst (attempt: attempt.ok) (builtins.head attempts) attempts).m;
+      ownMeta = ownMetaOf evaluated;
+      ownMetaOf =
+        evaluated: attribute:
         let
           entries =
             let
@@ -114,9 +161,15 @@ let
               }
           ) (builtins.attrNames tree)
         );
+      # A module is documented at the narrowest scope that can be documented:
+      # on its own, then alongside the `configuration` module of the same flake
+      # (which normally declares the shared option tree), then alongside every
+      # other module. Without the chain, a module that reads options or packages
+      # its siblings provide cannot be documented at all.
+      withMeta = extra: [ harness ] ++ lib.optional (!declaresMeta) metaOptions ++ extra;
     in
     {
-      inherit modulesFor;
+      inherit moduleArgs modulesFor;
       description =
         let
           described = ownMeta "description";
@@ -988,7 +1041,10 @@ let
             url ? "",
           }:
           let
-            contributedFor = contributed { inherit flake pkgs; };
+            contributedFor = contributed {
+              inherit flake pkgs;
+              class = "nixos";
+            };
             documentSurface =
               {
                 namespace,
@@ -1295,7 +1351,7 @@ let
                     let
                       checked = lib.evalModules {
                         modules = info.modulesFor ++ [ { config = info.example; } ];
-                        specialArgs = { inherit pkgs; };
+                        specialArgs = info.moduleArgs;
                       };
                       failures = lib.filter (
                         path: !(builtins.tryEval (lib.attrByPath path null checked.config)).success
@@ -2532,9 +2588,14 @@ let
           flattenOptions path value
       ) options
     );
-  harness = {
-    config.networking.domain = "test";
-    imports = import (inputs.nixpkgs.outPath + "/nixos/modules/module-list.nix");
+  # One base module set per module class. A module is documented only against
+  # the base modules of its own class: NixOS options belong to `nixosModules`,
+  # and a home-manager set would need its own entry rather than the NixOS base.
+  harnesses = {
+    nixos = {
+      config.networking.domain = "example";
+      imports = import (inputs.nixpkgs.outPath + "/nixos/modules/module-list.nix");
+    };
   };
   lib = inputs.nixpkgs.lib;
   metaOptions = ../lib/meta-options.nix;

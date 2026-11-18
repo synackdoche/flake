@@ -37,6 +37,7 @@
         check-mode = jailed "check-mode";
         gate = jailed "gate";
         meta-dedupe = jailed "meta-dedupe";
+        pre-commit-hooks = jailed "pre-commit-hooks";
         template = jailed "template";
       };
     };

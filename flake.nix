@@ -80,7 +80,8 @@
                   formatterFor pkgs (args.formatterConfig or { });
               pkgs = inputs.nixpkgs.legacyPackages.${system};
               preCommit = own.lib.internal.dev.preCommit {
-                inherit docs pkgs formatter;
+                inherit docs formatter pkgs;
+                extraHooks = (args.preCommitHooks or (_: { })) pkgs;
                 src = self.outPath;
               };
             in
@@ -128,6 +129,7 @@
               "devShellConfig"
               "flakeInputs"
               "formatterConfig"
+              "preCommitHooks"
             ]
           );
           hasOwnFormatter = builtins.pathExists (self.outPath + "/formatter.nix");

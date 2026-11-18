@@ -289,6 +289,27 @@ in
     grep -q 'already declared' "$work/meta-inline.log" || fail "meta-dedupe: the inline collision did not report a duplicate declaration: $(tail -3 "$work/meta-inline.log")"
     pass "an inline function module injected twice collides, which is why the stripped copy is a file"
   '';
+  pre-commit-hooks = suite "pre-commit-hooks" ''
+    mkdir "$work/hooks"
+    cd "$work/hooks"
+    cp -r "$repo/integration/fixtures/pre-commit-hooks/." .
+    sed -i "s|url = \"github:synackdoche/flake\";|url = \"path:$repo\";|" flake.nix
+    git init -q
+    git add -A
+    rm -f flake.lock
+    nix flake lock > "$work/hooks-lock.log" 2>&1 || fail "pre-commit-hooks: could not lock: $(tail -3 \"$work/hooks-lock.log\")"
+
+    enabled=$(nix eval --json ".#checks.$system.pre-commit.config.hooks" --apply 'hooks: builtins.sort builtins.lessThan (map (hook: hook.id) (builtins.filter (hook: hook.enable) (builtins.attrValues hooks)))') \
+      || fail "pre-commit-hooks: the pre-commit hook set does not evaluate"
+    [ "$enabled" = '["docs","probe","treefmt"]' ] \
+      || fail "pre-commit-hooks: the hook a client includes is not merged into the default hook set: $enabled"
+    pass "a client's preCommitHooks are merged into the default hook set alongside the docs and treefmt hooks"
+
+    nix develop .#default --command pre-commit run probe --all-files > "$work/hooks-run.log" 2>&1 \
+      || fail "pre-commit-hooks: pre-commit did not run the included hook: $(tail -5 \"$work/hooks-run.log\")"
+    [ -f .probe-ran ] || fail "pre-commit-hooks: pre-commit reported success without running the included hook"
+    pass "pre-commit runs the hook a client includes, not only the hooks this flake defines"
+  '';
   template = suite "template" ''
     mkdir "$work/client"
     cd "$work/client"

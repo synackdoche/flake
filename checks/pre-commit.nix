@@ -50,6 +50,7 @@ let
   suiteNames = [
     "check-mode"
     "gate"
+    "pre-commit-hooks"
     "template"
   ];
 in

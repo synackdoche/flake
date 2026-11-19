@@ -20,6 +20,7 @@ let
   integrationHook = pkgs.writeShellScript "docs-integration-hook" ''
     export LANG=''${LANG:-C.UTF-8}
     set -o pipefail
+    ${builtins.readFile ../fixtures/pre-commit/tracked-tree.sh}
     if [ ! -S /nix/var/nix/daemon-socket/socket ] || ! ${lib.getExe' pkgs.util-linux "unshare"} --user --map-root-user true 2> /dev/null; then
       echo "docs-integration: no nix daemon socket or no user namespaces here, skipping the jail suites"
       exit 0
@@ -28,9 +29,9 @@ let
     suites=( ${lib.concatStringsSep " " suiteNames} )
     installables=()
     for suite in ''${suites[*]}; do
-      installables+=("path:$PWD/integration#$suite")
+      installables+=("path:$tracked_tree/integration#$suite")
     done
-    readarray -t bins < <($nix build --no-link --print-out-paths --override-input synackdoche-flake "path:$PWD" "''${installables[@]}")
+    readarray -t bins < <($nix build --no-link --print-out-paths --override-input synackdoche-flake "path:$tracked_tree" "''${installables[@]}")
     [ "''${#bins[@]}" -eq "''${#suites[@]}" ] || {
       echo "docs-integration: could not build all of the jail suites" >&2
       exit 1

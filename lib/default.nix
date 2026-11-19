@@ -76,8 +76,6 @@ let
             overlays = lib.attrValues flake.overlays;
             system = pkgs.stdenv.hostPlatform.system;
           };
-      # Force what the documentation renders, so a scope that cannot be
-      # documented is detected before it is chosen.
       documents =
         m:
         let
@@ -121,7 +119,14 @@ let
         };
       };
       moduleFiles = lib.remove (toString metaOptions) (filesOf modules.${moduleName});
-      modulesFor = (lib.findFirst (attempt: attempt.ok) (builtins.head attempts) attempts).m;
+      modulesFor =
+        let
+          documentable = lib.filter (attempt: attempt.ok) attempts;
+        in
+        if documentable == [ ] then
+          throw "no documentable scope for module `${moduleName}`"
+        else
+          (lib.head documentable).m;
       ownMeta = ownMetaOf evaluated;
       ownMetaOf =
         evaluated: attribute:
@@ -216,7 +221,7 @@ let
             curried =
               let
                 arity = lib.length specs;
-                at = index: checked (lib.elemAt specs index);
+                at = index: checked ((lib.elemAt specs index) // { name = toString index; });
               in
               if arity == 0 then
                 functor
@@ -248,7 +253,9 @@ let
                 throw "${name}: missing argument `${builtins.head missing}`"
               else
                 functor (
-                  lib.mapAttrs (specName: spec: checked (spec // { name = specName; }) argument.${specName}) specs
+                  lib.mapAttrs (
+                    specName: spec: checked (spec // { name = specName; }) (argument.${specName} or spec.default)
+                  ) specs
                 );
             specs = value.meta.args or [ ];
           in
@@ -1358,7 +1365,9 @@ let
                       ) (leaves [ ] info.example);
                       leaves =
                         path: value:
-                        if builtins.isAttrs value then
+                        if value ? outPath then
+                          [ path ]
+                        else if builtins.isAttrs value then
                           builtins.concatMap (name: leaves (path ++ [ name ]) value.${name}) (builtins.attrNames value)
                         else
                           [ path ];
@@ -1833,23 +1842,19 @@ let
             ) pathInputs;
             pathInputs =
               let
-                hasRoot = lock ? root && lock.nodes ? root;
-                inputs = if hasRoot then (lock.nodes.${lock.root}.inputs or { }) else { };
                 lock = if builtins.pathExists lockPath then builtins.fromJSON (builtins.readFile lockPath) else { };
               in
               lib.concatLists (
                 lib.mapAttrsToList (
-                  name: key:
+                  key: node:
                   let
-                    isDirect = builtins.isString key && hasRoot;
                     locked = node.locked or { };
-                    node = lock.nodes.${key} or { };
                   in
-                  lib.optional (isDirect && (locked.type or "") == "path" && !(lib.elem name ignore)) {
+                  lib.optional ((locked.type or "") == "path" && !(lib.elem key ignore)) {
                     inherit (locked) path;
-                    inherit name;
+                    name = key;
                   }
-                ) inputs
+                ) (lock.nodes or { })
               );
             resolveToSegments =
               path:

@@ -98,6 +98,18 @@ Runs treefmt through this flake's formatter, plus deadnix, statix and pedantix.
 
 *Source:* [checks/pre-commit.nix](pre-commit.nix)
 
+## pre-commit-tracked-tree
+
+```sh
+nix build .#checks.x86_64-linux.pre-commit-tracked-tree
+```
+
+*Type:* derivation
+
+Checks that the jail hook copies only tracked files, so untracked secrets never reach the Nix store.
+
+*Source:* [checks/pre-commit-tracked-tree.nix](pre-commit-tracked-tree.nix)
+
 ## readme
 
 ```sh

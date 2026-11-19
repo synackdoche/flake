@@ -1,0 +1,36 @@
+{
+  "nodes": {
+    "remote": {
+      "inputs": { "outside": "outside" },
+      "locked": {
+        "lastModified": 1,
+        "narHash": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "owner": "x",
+        "repo": "y",
+        "rev": "0000000000000000000000000000000000000000",
+        "type": "github"
+      },
+      "original": {
+        "owner": "x",
+        "repo": "y",
+        "type": "github"
+      }
+    },
+    "outside": {
+      "locked": {
+        "narHash": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "path": "/tmp/outsiderepo",
+        "type": "path"
+      },
+      "original": {
+        "path": "/tmp/outsiderepo",
+        "type": "path"
+      }
+    },
+    "root": {
+      "inputs": { "remote": "remote" }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

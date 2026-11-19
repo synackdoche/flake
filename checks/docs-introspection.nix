@@ -132,6 +132,101 @@ let
       message = "an example that sets an undeclared option or a mistyped value is reported as a documentation problem (problems: ${lib.concatStringsSep " | " (exampleDocs "badExample").problems})";
     }
     {
+      assertion = (exampleDocs "packageExample").problems == [ ];
+      message = "a module whose example sets a package option is documented without recursing into the derivation";
+    }
+    {
+      assertion =
+        let
+          built = inputs.self.lib.internal.buildDocumented.function {
+            name = "probePositional";
+            value = decl;
+          };
+          decl = {
+            __functor = _self: args: args;
+            meta = {
+              args = [
+                {
+                  description = "an integer";
+                  type = lib.types.int;
+                }
+              ];
+              description = "Probe positional function.";
+            };
+          };
+          errorText = builtins.tryEval (built "wrong");
+        in
+        !errorText.success;
+      message = "a positional argument rejected by its declared type fails with a type error, not a missing attribute name";
+    }
+    {
+      assertion =
+        let
+          built = inputs.self.lib.internal.buildDocumented.function {
+            name = "probeDefault";
+            value = decl;
+          };
+          decl = {
+            __functor = _self: args: args;
+            meta = {
+              args = {
+                optional = {
+                  default = 7;
+                  description = "an integer with a default";
+                  type = lib.types.int;
+                };
+                required = {
+                  description = "a string";
+                  type = lib.types.str;
+                };
+              };
+              description = "Probe named function.";
+            };
+          };
+        in
+        (built { required = "x"; }).optional == 7
+        &&
+          (built {
+            optional = 3;
+            required = "x";
+          }).optional == 3;
+      message = "a named argument that declares a default uses it when omitted and accepts an explicit value";
+    }
+    {
+      assertion =
+        let
+          built = inputs.self.lib.internal.documentation.build (
+            args
+            // {
+              modules = {
+                configuration = { lib, ... }: {
+                  options.shared = lib.mkOption {
+                    default = "from-configuration";
+                    description = "Shared value declared in configuration.";
+                    type = lib.types.str;
+                  };
+                };
+                impl =
+                  { lib, config, ... }:
+                  {
+                    config = lib.mkIf config.impl.enable {
+                      environment.variables.FROM_SHARED = config.shared;
+                    };
+                    meta.description = "The implementation module.";
+                    options.impl = lib.mkOption {
+                      default = false;
+                      description = "Implementation option declared outside configuration.";
+                      type = lib.types.bool;
+                    };
+                  };
+              };
+            }
+          );
+        in
+        built.problems == [ ];
+      message = "a module whose option reads a sibling module's value is documented at a scope that includes that sibling";
+    }
+    {
       assertion = documentation.problems == [ ];
       message = "every documented thing states how to use it and the flake description states what the flake is for (problems: ${lib.concatStringsSep " | " documentation.problems})";
     }
@@ -663,6 +758,19 @@ let
         options.example.enabled = lib.mkOption {
           default = false;
           type = lib.types.bool;
+        };
+      };
+    packageExample =
+      { lib, ... }:
+      {
+        meta = {
+          description = "Sets a package-valued option in its worked example.";
+          example.probe.pkg = pkgs.hello;
+        };
+        options.probe.pkg = lib.mkOption {
+          default = null;
+          description = "The package the example sets.";
+          type = lib.types.nullOr lib.types.package;
         };
       };
     systemdUnit =

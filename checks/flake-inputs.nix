@@ -34,6 +34,10 @@ let
       message = "a path input that resolves outside the repository is rejected";
     }
     {
+      assertion = !(accepts ../fixtures/flake-inputs/transitive).success;
+      message = "a path input pinned by a transitive input is rejected, not only a direct one";
+    }
+    {
       assertion =
         let
           result = acceptsWithIgnore ../fixtures/flake-inputs/external [ "outside" ];

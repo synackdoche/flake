@@ -44,5 +44,6 @@ Mixes the shared formatter, pre-commit hook set, documentation gate, checks and 
 - [formatter-config](checks/README.md#formatter-config) — Checks that an evalModule-shaped formatterConfig is merged into the canonical formatter and that the pre-commit hook runs the resulting formatter.
 - [messages](checks/README.md#messages) — Checks that an assertion message names a declared option and states both the expectation and the fix.
 - [pre-commit](checks/README.md#pre-commit) — Runs treefmt through this flake's formatter, plus deadnix, statix and pedantix.
+- [pre-commit-tracked-tree](checks/README.md#pre-commit-tracked-tree) — Checks that the jail hook copies only tracked files, so untracked secrets never reach the Nix store.
 - [readme](checks/README.md#readme) — Fails when a committed README differs from the generated documentation, or when README.md and checks/README.md disagree about a check.
 
